@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="es-PE">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f766e">
+  <meta name="description" content="Gestión simple de ventas, gastos, inventario, clientes y fiados para pequeños negocios en Perú.">
+  <title>Negocio Simple</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Navegación principal">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">NS</div>
+        <div>
+          <strong>Negocio Simple</strong>
+          <span>Control en soles</span>
+        </div>
+      </div>
+
+      <nav class="nav-list">
+        <button class="nav-item active" data-view="dashboard"><span>⌂</span>Resumen</button>
+        <button class="nav-item" data-view="ventas"><span>↗</span>Ventas</button>
+        <button class="nav-item" data-view="gastos"><span>↘</span>Gastos</button>
+        <button class="nav-item" data-view="inventario"><span>▦</span>Inventario</button>
+        <button class="nav-item" data-view="clientes"><span>◎</span>Clientes y fiados</button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <button id="installBtn" class="secondary-btn hidden">Instalar app</button>
+        <button id="resetBtn" class="ghost-btn danger-text">Restablecer datos</button>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow" id="todayLabel"></p>
+          <h1 id="pageTitle">Resumen</h1>
+        </div>
+        <div class="topbar-actions">
+          <span id="connectionBadge" class="status-badge">En línea</span>
+          <button id="quickSaleBtn" class="primary-btn">+ Nueva venta</button>
+        </div>
+      </header>
+
+      <section id="dashboard" class="view active" aria-labelledby="pageTitle">
+        <div class="period-switch" role="group" aria-label="Periodo del resumen">
+          <button class="period-btn active" data-period="day">Hoy</button>
+          <button class="period-btn" data-period="month">Este mes</button>
+        </div>
+
+        <div class="metric-grid">
+          <article class="metric-card income">
+            <div class="metric-icon">↗</div>
+            <span>Ingresos</span>
+            <strong id="metricIncome">S/ 0.00</strong>
+            <small id="metricSalesCount">0 ventas</small>
+          </article>
+          <article class="metric-card expense">
+            <div class="metric-icon">↘</div>
+            <span>Gastos</span>
+            <strong id="metricExpenses">S/ 0.00</strong>
+            <small id="metricExpenseCount">0 movimientos</small>
+          </article>
+          <article class="metric-card profit">
+            <div class="metric-icon">◆</div>
+            <span>Ganancia neta</span>
+            <strong id="metricProfit">S/ 0.00</strong>
+            <small>Ingresos menos gastos</small>
+          </article>
+          <article class="metric-card receivable">
+            <div class="metric-icon">◷</div>
+            <span>Por cobrar</span>
+            <strong id="metricReceivables">S/ 0.00</strong>
+            <small id="metricDebtors">0 clientes con deuda</small>
+          </article>
+        </div>
+
+        <div class="dashboard-grid">
+          <article class="panel chart-panel">
+            <div class="panel-header">
+              <div><span class="section-kicker">Últimos 7 días</span><h2>Flujo del negocio</h2></div>
+              <div class="chart-legend"><span class="legend income-dot">Ingresos</span><span class="legend expense-dot">Gastos</span></div>
+            </div>
+            <div id="weeklyChart" class="bar-chart" aria-label="Gráfico de ingresos y gastos de los últimos 7 días"></div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-header"><div><span class="section-kicker">Atención</span><h2>Stock bajo</h2></div><button class="text-btn" data-go="inventario">Ver inventario</button></div>
+            <div id="lowStockList" class="compact-list"></div>
+          </article>
+
+          <article class="panel recent-panel">
+            <div class="panel-header"><div><span class="section-kicker">Actividad</span><h2>Movimientos recientes</h2></div></div>
+            <div id="recentMovements" class="movement-list"></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="ventas" class="view">
+        <div class="section-toolbar">
+          <div><p>Registra ventas por producto o monto libre.</p></div>
+          <button class="primary-btn" data-open="saleModal">+ Registrar venta</button>
+        </div>
+        <div class="panel">
+          <div class="filters-row">
+            <label class="search-field"><span>⌕</span><input id="salesSearch" type="search" placeholder="Buscar venta, producto o método"></label>
+            <input id="salesDate" type="date" aria-label="Filtrar ventas por fecha">
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Fecha</th><th>Detalle</th><th>Método</th><th>Tipo</th><th>Total</th><th></th></tr></thead>
+              <tbody id="salesTableBody"></tbody>
+            </table>
+          </div>
+          <div id="salesEmpty" class="empty-state hidden">No hay ventas que coincidan.</div>
+        </div>
+      </section>
+
+      <section id="gastos" class="view">
+        <div class="section-toolbar">
+          <div><p>Controla compras, servicios y egresos operativos.</p></div>
+          <button class="primary-btn" data-open="expenseModal">+ Registrar gasto</button>
+        </div>
+        <div class="panel">
+          <div class="filters-row">
+            <label class="search-field"><span>⌕</span><input id="expensesSearch" type="search" placeholder="Buscar concepto o categoría"></label>
+            <select id="expenseCategoryFilter" aria-label="Filtrar por categoría"><option value="">Todas las categorías</option></select>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Fecha</th><th>Concepto</th><th>Categoría</th><th>Método</th><th>Monto</th><th></th></tr></thead>
+              <tbody id="expensesTableBody"></tbody>
+            </table>
+          </div>
+          <div id="expensesEmpty" class="empty-state hidden">No hay gastos que coincidan.</div>
+        </div>
+      </section>
+
+      <section id="inventario" class="view">
+        <div class="section-toolbar">
+          <div><p>Administra precios, existencias y alertas.</p></div>
+          <button class="primary-btn" data-open="productModal">+ Nuevo producto</button>
+        </div>
+        <div class="inventory-summary">
+          <div class="mini-stat"><span>Productos</span><strong id="productCount">0</strong></div>
+          <div class="mini-stat"><span>Valor del inventario</span><strong id="inventoryValue">S/ 0.00</strong></div>
+          <div class="mini-stat"><span>Con stock bajo</span><strong id="lowStockCount">0</strong></div>
+        </div>
+        <div class="panel">
+          <div class="filters-row">
+            <label class="search-field"><span>⌕</span><input id="productsSearch" type="search" placeholder="Buscar producto"></label>
+            <select id="stockFilter" aria-label="Filtrar inventario"><option value="all">Todo el inventario</option><option value="low">Stock bajo</option><option value="out">Sin stock</option></select>
+          </div>
+          <div id="productGrid" class="product-grid"></div>
+          <div id="productsEmpty" class="empty-state hidden">No hay productos que coincidan.</div>
+        </div>
+      </section>
+
+      <section id="clientes" class="view">
+        <div class="section-toolbar">
+          <div><p>Registra clientes, fiados y abonos parciales.</p></div>
+          <button class="primary-btn" data-open="clientModal">+ Nuevo cliente</button>
+        </div>
+        <div class="client-summary">
+          <div class="mini-stat"><span>Clientes</span><strong id="clientCount">0</strong></div>
+          <div class="mini-stat"><span>Deuda total</span><strong id="totalDebt">S/ 0.00</strong></div>
+          <div class="mini-stat"><span>Clientes al día</span><strong id="clientsCurrent">0</strong></div>
+        </div>
+        <div class="panel">
+          <div class="filters-row">
+            <label class="search-field full"><span>⌕</span><input id="clientsSearch" type="search" placeholder="Buscar cliente o teléfono"></label>
+          </div>
+          <div id="clientGrid" class="client-grid"></div>
+          <div id="clientsEmpty" class="empty-state hidden">No hay clientes que coincidan.</div>
+        </div>
+      </section>
+    </main>
+
+    <nav class="bottom-nav" aria-label="Navegación móvil">
+      <button class="bottom-item active" data-view="dashboard"><span>⌂</span><small>Inicio</small></button>
+      <button class="bottom-item" data-view="ventas"><span>↗</span><small>Ventas</small></button>
+      <button class="fab" id="mobileQuickSale" aria-label="Nueva venta">+</button>
+      <button class="bottom-item" data-view="inventario"><span>▦</span><small>Productos</small></button>
+      <button class="bottom-item" data-view="clientes"><span>◎</span><small>Fiados</small></button>
+    </nav>
+  </div>
+
+  <div id="toastContainer" class="toast-container" aria-live="polite"></div>
+
+  <dialog id="saleModal" class="modal">
+    <form id="saleForm" method="dialog" novalidate>
+      <div class="modal-header"><div><span class="section-kicker">Ingreso</span><h2>Registrar venta</h2></div><button type="button" class="icon-btn modal-close" aria-label="Cerrar">×</button></div>
+      <div class="modal-body">
+        <div class="segmented-control"><button type="button" class="segment active" data-sale-type="product">Por producto</button><button type="button" class="segment" data-sale-type="free">Monto libre</button></div>
+        <div id="productSaleFields">
+          <label>Producto<select id="saleProduct" required></select></label>
+          <div class="form-grid two"><label>Cantidad<input id="saleQuantity" type="number" min="1" step="1" value="1" required></label><label>Precio unitario<input id="saleUnitPrice" type="number" min="0.01" step="0.01" required></label></div>
+          <p id="availableStock" class="helper-text"></p>
+        </div>
+        <div id="freeSaleFields" class="hidden"><label>Descripción<input id="saleDescription" type="text" maxlength="80" placeholder="Ej. Servicio de delivery"></label><label>Monto<input id="saleFreeAmount" type="number" min="0.01" step="0.01" placeholder="0.00"></label></div>
+        <div class="form-grid two"><label>Método de pago<select id="salePayment"><option>Efectivo</option><option>Yape</option><option>Plin</option><option>Transferencia</option><option>Fiado</option></select></label><label>Fecha y hora<input id="saleDateTime" type="datetime-local" required></label></div>
+        <div id="saleClientField" class="hidden"><label>Cliente<select id="saleClient"></select></label></div>
+        <div class="total-preview"><span>Total</span><strong id="saleTotalPreview">S/ 0.00</strong></div>
+      </div>
+      <div class="modal-footer"><button type="button" class="secondary-btn modal-close">Cancelar</button><button type="submit" class="primary-btn">Guardar venta</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="expenseModal" class="modal">
+    <form id="expenseForm" method="dialog" novalidate>
+      <div class="modal-header"><div><span class="section-kicker">Egreso</span><h2>Registrar gasto</h2></div><button type="button" class="icon-btn modal-close">×</button></div>
+      <div class="modal-body">
+        <label>Concepto<input id="expenseDescription" type="text" maxlength="100" placeholder="Ej. Pago de luz" required></label>
+        <div class="form-grid two"><label>Categoría<select id="expenseCategory"><option>Compras</option><option>Servicios</option><option>Alquiler</option><option>Transporte</option><option>Personal</option><option>Impuestos</option><option>Otros</option></select></label><label>Monto<input id="expenseAmount" type="number" min="0.01" step="0.01" placeholder="0.00" required></label></div>
+        <div class="form-grid two"><label>Método<select id="expensePayment"><option>Efectivo</option><option>Yape</option><option>Plin</option><option>Transferencia</option><option>Tarjeta</option></select></label><label>Fecha y hora<input id="expenseDateTime" type="datetime-local" required></label></div>
+      </div>
+      <div class="modal-footer"><button type="button" class="secondary-btn modal-close">Cancelar</button><button type="submit" class="primary-btn">Guardar gasto</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="productModal" class="modal">
+    <form id="productForm" method="dialog" novalidate>
+      <input id="productId" type="hidden">
+      <div class="modal-header"><div><span class="section-kicker">Inventario</span><h2 id="productModalTitle">Nuevo producto</h2></div><button type="button" class="icon-btn modal-close">×</button></div>
+      <div class="modal-body">
+        <label>Nombre<input id="productName" type="text" maxlength="80" required></label>
+        <div class="form-grid two"><label>Precio de venta<input id="productPrice" type="number" min="0.01" step="0.01" required></label><label>Costo unitario<input id="productCost" type="number" min="0" step="0.01" value="0"></label></div>
+        <div class="form-grid two"><label>Stock actual<input id="productStock" type="number" min="0" step="1" required></label><label>Alerta de stock bajo<input id="productMinStock" type="number" min="0" step="1" value="5" required></label></div>
+      </div>
+      <div class="modal-footer"><button type="button" class="secondary-btn modal-close">Cancelar</button><button type="submit" class="primary-btn">Guardar producto</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="clientModal" class="modal">
+    <form id="clientForm" method="dialog" novalidate>
+      <input id="clientId" type="hidden">
+      <div class="modal-header"><div><span class="section-kicker">Clientes</span><h2 id="clientModalTitle">Nuevo cliente</h2></div><button type="button" class="icon-btn modal-close">×</button></div>
+      <div class="modal-body">
+        <label>Nombre completo<input id="clientName" type="text" maxlength="80" required></label>
+        <label>Teléfono<input id="clientPhone" type="tel" inputmode="numeric" maxlength="15" placeholder="999 999 999"></label>
+        <label>Nota<input id="clientNote" type="text" maxlength="120" placeholder="Referencia opcional"></label>
+      </div>
+      <div class="modal-footer"><button type="button" class="secondary-btn modal-close">Cancelar</button><button type="submit" class="primary-btn">Guardar cliente</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="paymentModal" class="modal small-modal">
+    <form id="paymentForm" method="dialog" novalidate>
+      <input id="paymentClientId" type="hidden">
+      <div class="modal-header"><div><span class="section-kicker">Cobranza</span><h2>Registrar abono</h2></div><button type="button" class="icon-btn modal-close">×</button></div>
+      <div class="modal-body">
+        <p id="paymentClientInfo" class="helper-text"></p>
+        <label>Monto del abono<input id="paymentAmount" type="number" min="0.01" step="0.01" required></label>
+        <label>Método<select id="paymentMethod"><option>Efectivo</option><option>Yape</option><option>Plin</option><option>Transferencia</option></select></label>
+      </div>
+      <div class="modal-footer"><button type="button" class="secondary-btn modal-close">Cancelar</button><button type="submit" class="primary-btn">Registrar pago</button></div>
+    </form>
+  </dialog>
+
+  <script src="app.js" defer></script>
+</body>
+</html>
