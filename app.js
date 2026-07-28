@@ -589,3 +589,149 @@ function init() {
 }
 
 document.addEventListener('DOMContentLoaded', init);
+
+/* ===== V3 · Edición completa + Kardex auditable ===== */
+function loadState() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    const parsed = saved ? JSON.parse(saved) : seed();
+    const normalized = { products: [], clients: [], sales: [], expenses: [], payments: [], kardex: [], ...parsed };
+    normalized.products = normalized.products.map(product => ({ barcode: '', ...product }));
+    if (!Array.isArray(normalized.kardex)) normalized.kardex = [];
+    if (!normalized.kardex.length) {
+      normalized.products.forEach(product => {
+        if (product.stock > 0) normalized.kardex.push({ id: uid('kardex'), productId: product.id, date: new Date().toISOString(), type: 'entrada', quantity: product.stock, previousStock: 0, newStock: product.stock, reason: 'Stock inicial migrado', reference: 'Inicio del Kardex', sourceType: 'migration', sourceId: product.id });
+      });
+    }
+    return normalized;
+  } catch (error) {
+    console.error('No se pudo leer localStorage:', error);
+    const fresh = seed(); fresh.kardex = [];
+    return fresh;
+  }
+}
+
+function addKardex(product, { type, quantity, previousStock, newStock, reason, reference = '', date = new Date().toISOString(), sourceType = 'manual', sourceId = null }) {
+  state.kardex.push({ id: uid('kardex'), productId: product.id, productName: product.name, date, type, quantity: Math.abs(Number(quantity) || 0), previousStock, newStock, reason, reference, sourceType, sourceId });
+}
+
+function renderAll() {
+  renderDashboard(); renderSales(); renderExpenses(); renderProducts(); renderClients(); renderKardex(); updateSelects();
+}
+
+function setView(viewId) {
+  $$('.view').forEach(view => view.classList.toggle('active', view.id === viewId));
+  $$('[data-view]').forEach(button => button.classList.toggle('active', button.dataset.view === viewId));
+  const titles = { dashboard: 'Resumen', ventas: 'Ventas', gastos: 'Gastos', inventario: 'Inventario', clientes: 'Clientes y fiados', kardex: 'Kardex de inventario' };
+  $('#pageTitle').textContent = titles[viewId] || 'Negocio Simple';
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function renderSales() {
+  const query = $('#salesSearch').value.trim().toLowerCase();
+  const date = $('#salesDate').value;
+  const rows = state.sales.filter(s => {
+    const client = state.clients.find(c => c.id === s.clientId)?.name || '';
+    return `${s.description} ${s.payment} ${client}`.toLowerCase().includes(query) && (!date || sameDay(s.date, new Date(`${date}T00:00:00`)));
+  }).sort((a, b) => new Date(b.date) - new Date(a.date));
+  $('#salesTableBody').innerHTML = rows.map(s => `<tr><td>${dateTimeFormatter.format(new Date(s.date))}</td><td><strong>${escapeHTML(s.description)}</strong>${s.quantity > 1 ? `<br><small>${s.quantity} × ${money.format(s.unitPrice)}</small>` : ''}</td><td>${escapeHTML(s.payment)}</td><td><span class="type-badge">${s.type === 'product' ? 'Producto' : 'Monto libre'}</span></td><td><strong>${money.format(s.total)}</strong></td><td><div class="row-actions"><button class="icon-btn" data-edit-sale="${s.id}" title="Editar">✎</button><button class="icon-btn delete-btn" data-delete-sale="${s.id}" title="Eliminar">×</button></div></td></tr>`).join('');
+  $('#salesEmpty').classList.toggle('hidden', rows.length > 0);
+}
+
+function renderExpenses() {
+  const query = $('#expensesSearch').value.trim().toLowerCase();
+  const category = $('#expenseCategoryFilter').value;
+  const rows = state.expenses.filter(e => `${e.description} ${e.category} ${e.payment}`.toLowerCase().includes(query) && (!category || e.category === category)).sort((a, b) => new Date(b.date) - new Date(a.date));
+  $('#expensesTableBody').innerHTML = rows.map(e => `<tr><td>${dateTimeFormatter.format(new Date(e.date))}</td><td><strong>${escapeHTML(e.description)}</strong></td><td>${escapeHTML(e.category)}</td><td>${escapeHTML(e.payment)}</td><td><strong>${money.format(e.amount)}</strong></td><td><div class="row-actions"><button class="icon-btn" data-edit-expense="${e.id}" title="Editar">✎</button><button class="icon-btn delete-btn" data-delete-expense="${e.id}">×</button></div></td></tr>`).join('');
+  $('#expensesEmpty').classList.toggle('hidden', rows.length > 0);
+  const categories = [...new Set(state.expenses.map(e => e.category))].sort();
+  const current = $('#expenseCategoryFilter').value;
+  $('#expenseCategoryFilter').innerHTML = '<option value="">Todas las categorías</option>' + categories.map(c => `<option ${c === current ? 'selected' : ''}>${escapeHTML(c)}</option>`).join('');
+}
+
+function renderProducts() {
+  const query = $('#productsSearch').value.trim().toLowerCase(); const filter = $('#stockFilter').value;
+  const products = state.products.filter(p => `${p.name} ${p.barcode || ''}`.toLowerCase().includes(query) && (filter === 'all' || (filter === 'low' && p.stock <= p.minStock) || (filter === 'out' && p.stock === 0))).sort((a,b)=>a.name.localeCompare(b.name,'es'));
+  $('#productGrid').innerHTML = products.map(p => `<article class="product-card"><div class="product-card-top"><div class="product-avatar">${escapeHTML(p.name.charAt(0).toUpperCase())}</div>${p.stock <= p.minStock ? `<span class="stock-pill">${p.stock === 0 ? 'Sin stock' : 'Stock bajo'}</span>` : ''}</div><h3>${escapeHTML(p.name)}</h3><p>${p.barcode ? `Código: ${escapeHTML(p.barcode)} · ` : ''}Costo: ${money.format(p.cost)}</p><div class="product-meta"><div class="product-price">${money.format(p.price)}</div><div class="stock-info">Stock<strong>${p.stock} unidades</strong></div></div><div class="card-actions"><button class="secondary-btn" data-edit-product="${p.id}">Editar</button><button class="secondary-btn kardex-link" data-product-kardex="${p.id}">Kardex</button><button class="secondary-btn" data-move-product="${p.id}">Stock ±</button><button class="secondary-btn delete-btn" data-delete-product="${p.id}">Eliminar</button></div></article>`).join('');
+  $('#productsEmpty').classList.toggle('hidden', products.length > 0); $('#productCount').textContent = state.products.length; $('#inventoryValue').textContent = money.format(state.products.reduce((sum,p)=>sum+p.cost*p.stock,0)); $('#lowStockCount').textContent = state.products.filter(p=>p.stock<=p.minStock).length;
+}
+
+function renderClients() {
+  const query = $('#clientsSearch').value.trim().toLowerCase();
+  const clients = state.clients.filter(c => `${c.name} ${c.phone} ${c.note}`.toLowerCase().includes(query)).sort((a,b)=>a.name.localeCompare(b.name,'es'));
+  $('#clientGrid').innerHTML = clients.map(c => { const debt=getClientDebt(c.id); return `<article class="client-card"><div class="client-card-top"><div class="client-avatar">${escapeHTML(c.name.charAt(0).toUpperCase())}</div>${debt>0?'<span class="stock-pill">Pendiente</span>':'<span class="status-badge">Al día</span>'}</div><h3>${escapeHTML(c.name)}</h3><p>${escapeHTML(c.phone||'Sin teléfono')}${c.note?` · ${escapeHTML(c.note)}`:''}</p><div class="client-debt ${debt===0?'zero':''}">${money.format(debt)}</div><p>${debt>0?'Saldo por cobrar':'Sin deuda pendiente'}</p><div class="card-actions">${debt>0?`<button class="primary-btn" data-pay-client="${c.id}">Registrar abono</button>`:''}<button class="secondary-btn" data-account-client="${c.id}">Ver cuenta</button><button class="secondary-btn" data-edit-client="${c.id}">Editar</button><button class="secondary-btn delete-btn" data-delete-client="${c.id}">Eliminar</button></div></article>`; }).join('');
+  $('#clientsEmpty').classList.toggle('hidden', clients.length>0); $('#clientCount').textContent=state.clients.length; $('#totalDebt').textContent=money.format(state.clients.reduce((sum,c)=>sum+getClientDebt(c.id),0)); $('#clientsCurrent').textContent=state.clients.filter(c=>getClientDebt(c.id)===0).length;
+}
+
+function renderKardex() {
+  if (!$('#kardexTableBody')) return;
+  const q=$('#kardexSearch').value.trim().toLowerCase(), productId=$('#kardexProductFilter').value, type=$('#kardexTypeFilter').value;
+  const rows=state.kardex.filter(k=>{ const p=state.products.find(x=>x.id===k.productId); return `${p?.name||k.productName||''} ${k.reason||''} ${k.reference||''}`.toLowerCase().includes(q)&&(!productId||k.productId===productId)&&(!type||k.type===type); }).sort((a,b)=>new Date(b.date)-new Date(a.date));
+  $('#kardexTableBody').innerHTML=rows.map(k=>{ const p=state.products.find(x=>x.id===k.productId); const sign=k.type==='entrada'?'+':k.type==='salida'?'-':'±'; return `<tr><td>${dateTimeFormatter.format(new Date(k.date))}</td><td><strong>${escapeHTML(p?.name||k.productName||'Producto eliminado')}</strong></td><td><span class="movement-badge ${k.type}">${escapeHTML(k.type)}</span></td><td class="${k.type==='entrada'?'quantity-positive':k.type==='salida'?'quantity-negative':''}">${sign}${k.quantity}</td><td>${k.previousStock}</td><td><strong>${k.newStock}</strong></td><td>${escapeHTML(k.reason||'Sin motivo')}${k.reference?`<div class="audit-note">Ref: ${escapeHTML(k.reference)}</div>`:''}</td></tr>`; }).join('');
+  $('#kardexEmpty').classList.toggle('hidden', rows.length>0); $('#kardexCount').textContent=state.kardex.length; $('#kardexEntries').textContent=state.kardex.filter(k=>k.type==='entrada').reduce((s,k)=>s+k.quantity,0); $('#kardexOutputs').textContent=state.kardex.filter(k=>k.type==='salida').reduce((s,k)=>s+k.quantity,0);
+  const current=$('#kardexProductFilter').value; $('#kardexProductFilter').innerHTML='<option value="">Todos los productos</option>'+state.products.slice().sort((a,b)=>a.name.localeCompare(b.name,'es')).map(p=>`<option value="${p.id}" ${p.id===current?'selected':''}>${escapeHTML(p.name)}</option>`).join('');
+}
+
+function updateSelects() {
+  const products=state.products.slice().sort((a,b)=>a.name.localeCompare(b.name,'es')), clients=state.clients.slice().sort((a,b)=>a.name.localeCompare(b.name,'es'));
+  const currentSale=$('#saleProduct').value, currentMove=$('#movementProduct')?.value;
+  $('#saleProduct').innerHTML=products.length?products.map(p=>`<option value="${p.id}" ${p.stock===0?'disabled':''}>${escapeHTML(p.name)} · ${money.format(p.price)} · Stock ${p.stock}</option>`).join(''):'<option value="">No hay productos</option>';
+  if (currentSale && products.some(p=>p.id===currentSale)) $('#saleProduct').value=currentSale;
+  $('#saleClient').innerHTML=clients.length?clients.map(c=>`<option value="${c.id}">${escapeHTML(c.name)}</option>`).join(''):'<option value="">No hay clientes</option>';
+  if ($('#movementProduct')) { $('#movementProduct').innerHTML=products.map(p=>`<option value="${p.id}">${escapeHTML(p.name)} · Stock ${p.stock}</option>`).join(''); if(currentMove&&products.some(p=>p.id===currentMove)) $('#movementProduct').value=currentMove; }
+  syncProductSale(); updateMovementInfo();
+}
+
+function handleSaleSubmit(event) {
+  event.preventDefault();
+  const id=$('#saleId').value, old=id?state.sales.find(s=>s.id===id):null, payment=$('#salePayment').value, date=new Date($('#saleDateTime').value).toISOString();
+  let newSale;
+  if(saleType==='product'){
+    const product=state.products.find(p=>p.id===$('#saleProduct').value), quantity=Math.floor(toNumber($('#saleQuantity').value)), unitPrice=toNumber($('#saleUnitPrice').value);
+    if(!product||quantity<1||unitPrice<=0)return notify('Completa los datos de la venta.','error');
+    const restored=product.stock+(old?.productId===product.id?old.quantity:0);
+    if(quantity>restored)return notify(`Solo hay ${restored} unidades disponibles considerando la corrección.`,'error');
+    newSale={id:id||uid('sale'),date,description:product.name,productId:product.id,quantity,unitPrice,total:quantity*unitPrice,payment,clientId:payment==='Fiado'?$('#saleClient').value:null,type:'product'};
+  }else{ const description=$('#saleDescription').value.trim()||'Venta libre', amount=toNumber($('#saleFreeAmount').value); if(amount<=0)return notify('Ingresa un monto válido.','error'); newSale={id:id||uid('sale'),date,description,productId:null,quantity:1,unitPrice:amount,total:amount,payment,clientId:payment==='Fiado'?$('#saleClient').value:null,type:'free'}; }
+  if(payment==='Fiado'&&!newSale.clientId)return notify('Selecciona un cliente para el fiado.','error');
+  if(old?.productId){ const p=state.products.find(x=>x.id===old.productId); if(p){const before=p.stock;p.stock+=old.quantity;addKardex(p,{type:'entrada',quantity:old.quantity,previousStock:before,newStock:p.stock,reason:'Corrección de venta editada',reference:`Venta ${old.id}`,sourceType:'sale_edit',sourceId:old.id});}}
+  if(newSale.productId){ const p=state.products.find(x=>x.id===newSale.productId); const before=p.stock;p.stock-=newSale.quantity;addKardex(p,{type:'salida',quantity:newSale.quantity,previousStock:before,newStock:p.stock,reason:old?'Venta corregida':'Venta registrada',reference:`Venta ${newSale.id}`,date:newSale.date,sourceType:'sale',sourceId:newSale.id}); }
+  if(old) Object.assign(old,newSale); else state.sales.push(newSale);
+  saveState();renderAll();$('#saleModal').close();event.target.reset();$('#saleId').value='';notify(old?'Venta actualizada y Kardex corregido.':'Venta registrada correctamente.');
+}
+
+function handleExpenseSubmit(event){event.preventDefault();const id=$('#expenseId').value,amount=toNumber($('#expenseAmount').value),description=$('#expenseDescription').value.trim();if(!description||amount<=0)return notify('Completa el concepto y monto.','error');const data={id:id||uid('expense'),date:new Date($('#expenseDateTime').value).toISOString(),description,category:$('#expenseCategory').value,amount,payment:$('#expensePayment').value};if(id)Object.assign(state.expenses.find(e=>e.id===id),data);else state.expenses.push(data);saveState();renderAll();$('#expenseModal').close();event.target.reset();$('#expenseId').value='';notify(id?'Gasto actualizado.':'Gasto registrado correctamente.');}
+
+function handleProductSubmit(event){event.preventDefault();const id=$('#productId').value;const data={name:$('#productName').value.trim(),barcode:$('#productBarcode').value.trim(),price:toNumber($('#productPrice').value),cost:toNumber($('#productCost').value),stock:Math.max(0,Math.floor(toNumber($('#productStock').value))),minStock:Math.max(0,Math.floor(toNumber($('#productMinStock').value)))};if(data.barcode&&state.products.some(p=>p.barcode===data.barcode&&p.id!==id))return notify('Ese código ya pertenece a otro producto.','error');if(!data.name||data.price<=0)return notify('Ingresa un nombre y precio válidos.','error');if(id){const p=state.products.find(x=>x.id===id),before=p.stock;Object.assign(p,data);if(before!==p.stock)addKardex(p,{type:'ajuste',quantity:Math.abs(p.stock-before),previousStock:before,newStock:p.stock,reason:'Stock modificado desde edición de producto',reference:'Edición manual',sourceType:'product_edit',sourceId:p.id});}else{const p={id:uid('product'),...data};state.products.push(p);if(p.stock>0)addKardex(p,{type:'entrada',quantity:p.stock,previousStock:0,newStock:p.stock,reason:'Stock inicial del producto',reference:'Alta de producto',sourceType:'product_create',sourceId:p.id});}saveState();renderAll();$('#productModal').close();event.target.reset();notify(id?'Producto actualizado.':'Producto creado.');}
+
+function handlePaymentSubmit(event){event.preventDefault();const id=$('#paymentId').value,clientId=$('#paymentClientId').value,amount=toNumber($('#paymentAmount').value),old=id?state.payments.find(p=>p.id===id):null;const debtWithoutOld=getClientDebt(clientId)+(old?.amount||0);if(amount<=0||amount>debtWithoutOld)return notify(`El abono no puede superar ${money.format(debtWithoutOld)}.`,'error');const data={id:id||uid('payment'),clientId,date:new Date($('#paymentDateTime').value).toISOString(),amount,method:$('#paymentMethod').value};if(old)Object.assign(old,data);else state.payments.push(data);saveState();renderAll();$('#paymentModal').close();event.target.reset();$('#paymentId').value='';notify(id?'Abono actualizado.':'Abono registrado correctamente.');}
+
+function handleStockMovementSubmit(event){event.preventDefault();const product=state.products.find(p=>p.id===$('#movementProduct').value),type=$('#movementType').value,value=Math.floor(toNumber($('#movementQuantity').value)),reason=$('#movementReason').value.trim();if(!product||!reason||value<0)return notify('Completa correctamente el movimiento.','error');const before=product.stock;let after=before;if(type==='entrada')after=before+value;if(type==='salida'){if(value>before)return notify(`No puedes retirar más de ${before} unidades.`,'error');after=before-value;}if(type==='ajuste')after=value;if(type!=='ajuste'&&value===0)return notify('La cantidad debe ser mayor a cero.','error');product.stock=after;addKardex(product,{type,quantity:type==='ajuste'?Math.abs(after-before):value,previousStock:before,newStock:after,reason,reference:$('#movementReference').value.trim(),date:new Date($('#movementDateTime').value).toISOString(),sourceType:'manual'});saveState();renderAll();$('#stockMovementModal').close();event.target.reset();notify('Movimiento aplicado y registrado en Kardex.');}
+
+function openStockMovement(productId=''){openModal('stockMovementModal');if(productId)$('#movementProduct').value=productId;$('#movementDateTime').value=nowLocalInput();updateMovementInfo();}
+function updateMovementInfo(){const p=state.products.find(x=>x.id===$('#movementProduct')?.value);if($('#movementStockInfo'))$('#movementStockInfo').textContent=p?`Stock actual: ${p.stock} unidades.`:'Selecciona un producto.';if($('#movementQuantityLabel'))$('#movementQuantityLabel').firstChild.textContent=$('#movementType')?.value==='ajuste'?'Nuevo stock final':'Cantidad';}
+function openAccount(clientId){const c=state.clients.find(x=>x.id===clientId);if(!c)return;$('#accountModalTitle').textContent=`Cuenta de ${c.name}`;const debt=getClientDebt(c.id),credits=state.sales.filter(s=>s.clientId===c.id&&s.payment==='Fiado').reduce((a,s)=>a+s.total,0),paid=state.payments.filter(p=>p.clientId===c.id).reduce((a,p)=>a+p.amount,0);$('#accountSummary').innerHTML=`<div class="mini-stat"><span>Fiado acumulado</span><strong>${money.format(credits)}</strong></div><div class="mini-stat"><span>Pagado</span><strong>${money.format(paid)}</strong></div><div class="mini-stat"><span>Saldo pendiente</span><strong>${money.format(debt)}</strong></div>`;const items=[...state.sales.filter(s=>s.clientId===c.id&&s.payment==='Fiado').map(s=>({...s,kind:'Fiado',amount:s.total})),...state.payments.filter(p=>p.clientId===c.id).map(p=>({...p,kind:'Abono',description:'Pago recibido',payment:p.method}))].sort((a,b)=>new Date(b.date)-new Date(a.date));$('#accountTableBody').innerHTML=items.map(i=>`<tr><td>${dateTimeFormatter.format(new Date(i.date))}</td><td><span class="type-badge">${i.kind}</span></td><td>${escapeHTML(i.description)}</td><td>${escapeHTML(i.payment||i.method)}</td><td class="${i.kind==='Abono'?'quantity-positive':'quantity-negative'}">${i.kind==='Abono'?'+':'-'}${money.format(i.amount)}</td><td><div class="row-actions">${i.kind==='Abono'?`<button class="icon-btn" data-edit-payment="${i.id}">✎</button><button class="icon-btn delete-btn" data-delete-payment="${i.id}" data-account="${clientId}">×</button>`:`<button class="icon-btn" data-edit-sale="${i.id}">✎</button>`}</div></td></tr>`).join('');$('#accountModal').showModal();}
+
+function delegatedActions(event){const t=event.target.closest('button');if(!t)return;if(t.dataset.open)return openModal(t.dataset.open);if(t.dataset.go)return setView(t.dataset.go);if(t.dataset.view)return setView(t.dataset.view);if(t.hasAttribute('data-open-stock-movement'))return openStockMovement();if(t.dataset.moveProduct)return openStockMovement(t.dataset.moveProduct);if(t.dataset.productKardex){setView('kardex');$('#kardexProductFilter').value=t.dataset.productKardex;return renderKardex();}
+if(t.dataset.editSale){const s=state.sales.find(x=>x.id===t.dataset.editSale);if(!s)return;if($('#accountModal').open)$('#accountModal').close();$('#saleId').value=s.id;$('#saleModalTitle').textContent='Editar venta';setSaleType(s.type);$('#saleDateTime').value=localDateTimeValue(s.date);$('#salePayment').value=s.payment;$('#saleClientField').classList.toggle('hidden',s.payment!=='Fiado');if(s.type==='product'){$('#saleProduct').value=s.productId;$('#saleQuantity').value=s.quantity;$('#saleUnitPrice').value=s.unitPrice;syncProductSale();$('#saleUnitPrice').value=s.unitPrice;}else{$('#saleDescription').value=s.description;$('#saleFreeAmount').value=s.total;}if(s.clientId)$('#saleClient').value=s.clientId;updateSalePreview();return $('#saleModal').showModal();}
+if(t.dataset.editExpense){const e=state.expenses.find(x=>x.id===t.dataset.editExpense);if(!e)return;$('#expenseId').value=e.id;$('#expenseModalTitle').textContent='Editar gasto';$('#expenseDescription').value=e.description;$('#expenseCategory').value=e.category;$('#expenseAmount').value=e.amount;$('#expensePayment').value=e.payment;$('#expenseDateTime').value=localDateTimeValue(e.date);return $('#expenseModal').showModal();}
+if(t.dataset.editProduct){const p=state.products.find(x=>x.id===t.dataset.editProduct);if(!p)return;$('#productId').value=p.id;$('#productName').value=p.name;$('#productBarcode').value=p.barcode||'';$('#productPrice').value=p.price;$('#productCost').value=p.cost;$('#productStock').value=p.stock;$('#productMinStock').value=p.minStock;$('#productModalTitle').textContent='Editar producto';return $('#productModal').showModal();}
+if(t.dataset.editClient){const c=state.clients.find(x=>x.id===t.dataset.editClient);if(!c)return;$('#clientId').value=c.id;$('#clientName').value=c.name;$('#clientPhone').value=c.phone;$('#clientNote').value=c.note;$('#clientModalTitle').textContent='Editar cliente';return $('#clientModal').showModal();}
+if(t.dataset.payClient){const c=state.clients.find(x=>x.id===t.dataset.payClient);if(!c)return;$('#paymentId').value='';$('#paymentClientId').value=c.id;$('#paymentModalTitle').textContent='Registrar abono';$('#paymentClientInfo').textContent=`${c.name} debe ${money.format(getClientDebt(c.id))}.`;$('#paymentDateTime').value=nowLocalInput();return $('#paymentModal').showModal();}
+if(t.dataset.accountClient)return openAccount(t.dataset.accountClient);if(t.dataset.editPayment){const p=state.payments.find(x=>x.id===t.dataset.editPayment);if(!p)return;if($('#accountModal').open)$('#accountModal').close();const c=state.clients.find(x=>x.id===p.clientId);$('#paymentId').value=p.id;$('#paymentClientId').value=p.clientId;$('#paymentModalTitle').textContent='Editar abono';$('#paymentClientInfo').textContent=`Editando pago de ${c?.name||'cliente'}.`;$('#paymentAmount').value=p.amount;$('#paymentMethod').value=p.method;$('#paymentDateTime').value=localDateTimeValue(p.date);return $('#paymentModal').showModal();}
+if(t.dataset.deletePayment&&confirm('¿Eliminar este abono? La deuda del cliente aumentará nuevamente.')){const clientId=state.payments.find(p=>p.id===t.dataset.deletePayment)?.clientId;state.payments=state.payments.filter(p=>p.id!==t.dataset.deletePayment);saveState();renderAll();$('#accountModal').close();notify('Abono eliminado.');if(clientId)openAccount(clientId);return;}
+if(t.dataset.deleteSale){const s=state.sales.find(x=>x.id===t.dataset.deleteSale);if(s&&confirm('¿Eliminar esta venta? El stock será devuelto y quedará registrado en Kardex.')){if(s.productId){const p=state.products.find(x=>x.id===s.productId);if(p){const before=p.stock;p.stock+=s.quantity;addKardex(p,{type:'entrada',quantity:s.quantity,previousStock:before,newStock:p.stock,reason:'Anulación de venta',reference:`Venta ${s.id}`,sourceType:'sale_delete',sourceId:s.id});}}state.sales=state.sales.filter(x=>x.id!==s.id);saveState();renderAll();if($('#accountModal').open)$('#accountModal').close();notify('Venta eliminada y stock devuelto.');}return;}
+if(t.dataset.deleteExpense&&confirm('¿Eliminar este gasto?')){state.expenses=state.expenses.filter(e=>e.id!==t.dataset.deleteExpense);saveState();renderAll();return notify('Gasto eliminado.');}
+if(t.dataset.deleteProduct){if(state.sales.some(s=>s.productId===t.dataset.deleteProduct)||state.kardex.some(k=>k.productId===t.dataset.deleteProduct))return notify('No puedes eliminar un producto con historial. Puedes dejar su stock en cero.','error');if(confirm('¿Eliminar este producto?')){state.products=state.products.filter(p=>p.id!==t.dataset.deleteProduct);saveState();renderAll();notify('Producto eliminado.');}return;}
+if(t.dataset.deleteClient){if(getClientDebt(t.dataset.deleteClient)>0)return notify('Primero cancela o corrige la deuda.','error');if(state.sales.some(s=>s.clientId===t.dataset.deleteClient)||state.payments.some(p=>p.clientId===t.dataset.deleteClient))return notify('No puedes eliminar un cliente con historial. Puedes editar sus datos.','error');if(confirm('¿Eliminar este cliente?')){state.clients=state.clients.filter(c=>c.id!==t.dataset.deleteClient);saveState();renderAll();notify('Cliente eliminado.');}}
+}
+function localDateTimeValue(value){const d=new Date(value);d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,16);}
+
+document.addEventListener('DOMContentLoaded',()=>{
+  $('#stockMovementForm')?.addEventListener('submit',handleStockMovementSubmit);
+  $('#movementProduct')?.addEventListener('change',updateMovementInfo);$('#movementType')?.addEventListener('change',updateMovementInfo);
+  ['kardexSearch','kardexProductFilter','kardexTypeFilter'].forEach(id=>$(`#${id}`)?.addEventListener('input',renderKardex));
+  $('#saleModal')?.addEventListener('close',()=>{$('#saleId').value='';$('#saleModalTitle').textContent='Registrar venta';});
+  $('#expenseModal')?.addEventListener('close',()=>{$('#expenseId').value='';$('#expenseModalTitle').textContent='Registrar gasto';});
+  $('#paymentModal')?.addEventListener('close',()=>{$('#paymentId').value='';$('#paymentModalTitle').textContent='Registrar abono';});
+});

@@ -26,6 +26,7 @@
         <button class="nav-item" data-view="gastos"><span>↘</span>Gastos</button>
         <button class="nav-item" data-view="inventario"><span>▦</span>Inventario</button>
         <button class="nav-item" data-view="clientes"><span>◎</span>Clientes y fiados</button>
+        <button class="nav-item" data-view="kardex"><span>≋</span>Kardex</button>
       </nav>
 
       <div class="sidebar-footer">
@@ -178,6 +179,27 @@
           <div id="clientsEmpty" class="empty-state hidden">No hay clientes que coincidan.</div>
         </div>
       </section>
+
+      <section id="kardex" class="view">
+        <div class="section-toolbar">
+          <div><p>Historial auditable de entradas, salidas y correcciones de inventario.</p></div>
+          <button class="primary-btn" data-open-stock-movement>+ Movimiento de stock</button>
+        </div>
+        <div class="inventory-summary">
+          <div class="mini-stat"><span>Movimientos</span><strong id="kardexCount">0</strong></div>
+          <div class="mini-stat"><span>Entradas acumuladas</span><strong id="kardexEntries">0</strong></div>
+          <div class="mini-stat"><span>Salidas acumuladas</span><strong id="kardexOutputs">0</strong></div>
+        </div>
+        <div class="panel">
+          <div class="filters-row kardex-filters">
+            <label class="search-field"><span>⌕</span><input id="kardexSearch" type="search" placeholder="Buscar producto, motivo o referencia"></label>
+            <select id="kardexProductFilter"><option value="">Todos los productos</option></select>
+            <select id="kardexTypeFilter"><option value="">Todos los movimientos</option><option value="entrada">Entradas</option><option value="salida">Salidas</option><option value="ajuste">Ajustes</option></select>
+          </div>
+          <div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Producto</th><th>Movimiento</th><th>Cantidad</th><th>Stock anterior</th><th>Stock final</th><th>Motivo / referencia</th></tr></thead><tbody id="kardexTableBody"></tbody></table></div>
+          <div id="kardexEmpty" class="empty-state hidden">No hay movimientos que coincidan.</div>
+        </div>
+      </section>
     </main>
 
     <nav class="bottom-nav" aria-label="Navegación móvil">
@@ -193,7 +215,8 @@
 
   <dialog id="saleModal" class="modal">
     <form id="saleForm" method="dialog" novalidate>
-      <div class="modal-header"><div><span class="section-kicker">Ingreso</span><h2>Registrar venta</h2></div><button type="button" class="icon-btn modal-close" aria-label="Cerrar">×</button></div>
+      <input id="saleId" type="hidden">
+      <div class="modal-header"><div><span class="section-kicker">Ingreso</span><h2 id="saleModalTitle">Registrar venta</h2></div><button type="button" class="icon-btn modal-close" aria-label="Cerrar">×</button></div>
       <div class="modal-body">
         <div class="segmented-control"><button type="button" class="segment active" data-sale-type="product">Por producto</button><button type="button" class="segment" data-sale-type="free">Monto libre</button></div>
         <div id="productSaleFields">
@@ -215,7 +238,8 @@
 
   <dialog id="expenseModal" class="modal">
     <form id="expenseForm" method="dialog" novalidate>
-      <div class="modal-header"><div><span class="section-kicker">Egreso</span><h2>Registrar gasto</h2></div><button type="button" class="icon-btn modal-close">×</button></div>
+      <input id="expenseId" type="hidden">
+      <div class="modal-header"><div><span class="section-kicker">Egreso</span><h2 id="expenseModalTitle">Registrar gasto</h2></div><button type="button" class="icon-btn modal-close">×</button></div>
       <div class="modal-body">
         <label>Concepto<input id="expenseDescription" type="text" maxlength="100" placeholder="Ej. Pago de luz" required></label>
         <div class="form-grid two"><label>Categoría<select id="expenseCategory"><option>Compras</option><option>Servicios</option><option>Alquiler</option><option>Transporte</option><option>Personal</option><option>Impuestos</option><option>Otros</option></select></label><label>Monto<input id="expenseAmount" type="number" min="0.01" step="0.01" placeholder="0.00" required></label></div>
@@ -258,17 +282,37 @@
   <dialog id="paymentModal" class="modal small-modal">
     <form id="paymentForm" method="dialog" novalidate>
       <input id="paymentClientId" type="hidden">
-      <div class="modal-header"><div><span class="section-kicker">Cobranza</span><h2>Registrar abono</h2></div><button type="button" class="icon-btn modal-close">×</button></div>
+      <input id="paymentId" type="hidden">
+      <div class="modal-header"><div><span class="section-kicker">Cobranza</span><h2 id="paymentModalTitle">Registrar abono</h2></div><button type="button" class="icon-btn modal-close">×</button></div>
       <div class="modal-body">
         <p id="paymentClientInfo" class="helper-text"></p>
         <label>Monto del abono<input id="paymentAmount" type="number" min="0.01" step="0.01" required></label>
-        <label>Método<select id="paymentMethod"><option>Efectivo</option><option>Yape</option><option>Plin</option><option>Transferencia</option></select></label>
+        <div class="form-grid two"><label>Método<select id="paymentMethod"><option>Efectivo</option><option>Yape</option><option>Plin</option><option>Transferencia</option></select></label><label>Fecha y hora<input id="paymentDateTime" type="datetime-local" required></label></div>
       </div>
-      <div class="modal-footer"><button type="button" class="secondary-btn modal-close">Cancelar</button><button type="submit" class="primary-btn">Registrar pago</button></div>
+      <div class="modal-footer"><button type="button" class="secondary-btn modal-close">Cancelar</button><button type="submit" class="primary-btn">Guardar pago</button></div>
     </form>
   </dialog>
 
 
+
+  <dialog id="stockMovementModal" class="modal">
+    <form id="stockMovementForm" method="dialog" novalidate>
+      <div class="modal-header"><div><span class="section-kicker">Kardex</span><h2>Movimiento de stock</h2></div><button type="button" class="icon-btn modal-close">×</button></div>
+      <div class="modal-body">
+        <label>Producto<select id="movementProduct" required></select></label>
+        <div class="form-grid two"><label>Tipo<select id="movementType"><option value="entrada">Entrada</option><option value="salida">Salida</option><option value="ajuste">Ajuste a stock final</option></select></label><label id="movementQuantityLabel">Cantidad<input id="movementQuantity" type="number" min="0" step="1" required></label></div>
+        <div class="form-grid two"><label>Motivo<input id="movementReason" type="text" maxlength="100" placeholder="Compra, merma, conteo físico..." required></label><label>Fecha y hora<input id="movementDateTime" type="datetime-local" required></label></div>
+        <label>Referencia opcional<input id="movementReference" type="text" maxlength="80" placeholder="Factura, documento o responsable"></label>
+        <p id="movementStockInfo" class="helper-text"></p>
+      </div>
+      <div class="modal-footer"><button type="button" class="secondary-btn modal-close">Cancelar</button><button type="submit" class="primary-btn">Aplicar movimiento</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="accountModal" class="modal wide-modal">
+    <div class="modal-header"><div><span class="section-kicker">Cuenta corriente</span><h2 id="accountModalTitle">Historial del cliente</h2></div><button type="button" class="icon-btn modal-close">×</button></div>
+    <div class="modal-body"><div id="accountSummary" class="account-summary"></div><div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Detalle</th><th>Método</th><th>Monto</th><th></th></tr></thead><tbody id="accountTableBody"></tbody></table></div></div>
+  </dialog>
 
   <dialog id="scannerModal" class="modal scanner-modal">
     <div class="scanner-shell">

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'negocio-simple-v2';
+const CACHE_NAME = 'negocio-simple-v3-kardex';
 const ASSETS = ['./', './index.html', './styles.css', './app.js', './manifest.json'];
 
 self.addEventListener('install', event => {
