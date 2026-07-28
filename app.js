@@ -26,11 +26,11 @@ const seed = () => {
   };
   return {
     products: [
-      { id: 'p1', name: 'Gaseosa personal', price: 3.5, cost: 2.1, stock: 24, minStock: 8 },
-      { id: 'p2', name: 'Agua mineral', price: 2.5, cost: 1.3, stock: 6, minStock: 8 },
-      { id: 'p3', name: 'Galletas surtidas', price: 2, cost: 1.15, stock: 15, minStock: 5 },
-      { id: 'p4', name: 'Leche evaporada', price: 4.8, cost: 3.7, stock: 3, minStock: 6 },
-      { id: 'p5', name: 'Arroz 1 kg', price: 5.2, cost: 4.1, stock: 18, minStock: 5 }
+      { id: 'p1', barcode: '7750001000011', name: 'Gaseosa personal', price: 3.5, cost: 2.1, stock: 24, minStock: 8 },
+      { id: 'p2', barcode: '7750001000028', name: 'Agua mineral', price: 2.5, cost: 1.3, stock: 6, minStock: 8 },
+      { id: 'p3', barcode: '7750001000035', name: 'Galletas surtidas', price: 2, cost: 1.15, stock: 15, minStock: 5 },
+      { id: 'p4', barcode: '7750001000042', name: 'Leche evaporada', price: 4.8, cost: 3.7, stock: 3, minStock: 6 },
+      { id: 'p5', barcode: '7750001000059', name: 'Arroz 1 kg', price: 5.2, cost: 4.1, stock: 18, minStock: 5 }
     ],
     clients: [
       { id: 'c1', name: 'María Torres', phone: '987 654 321', note: 'Cliente frecuente' },
@@ -59,13 +59,23 @@ let state = loadState();
 let dashboardPeriod = 'day';
 let saleType = 'product';
 let deferredPrompt = null;
+let scannerStream = null;
+let scannerMode = null;
+let scannerFacingMode = 'environment';
+let scannerLoopId = null;
+let scannerDetector = null;
+let torchEnabled = false;
+let lastDetectedCode = '';
+let lastDetectedAt = 0;
 
 function loadState() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (!saved) return seed();
     const parsed = JSON.parse(saved);
-    return { products: [], clients: [], sales: [], expenses: [], payments: [], ...parsed };
+    const normalized = { products: [], clients: [], sales: [], expenses: [], payments: [], ...parsed };
+    normalized.products = normalized.products.map(product => ({ barcode: '', ...product }));
+    return normalized;
   } catch (error) {
     console.error('No se pudo leer localStorage:', error);
     return seed();
@@ -206,13 +216,13 @@ function renderProducts() {
   const query = $('#productsSearch').value.trim().toLowerCase();
   const filter = $('#stockFilter').value;
   const products = state.products.filter(p => {
-    const matchText = p.name.toLowerCase().includes(query);
+    const matchText = `${p.name} ${p.barcode || ''}`.toLowerCase().includes(query);
     const matchStock = filter === 'all' || (filter === 'low' && p.stock <= p.minStock) || (filter === 'out' && p.stock === 0);
     return matchText && matchStock;
   }).sort((a, b) => a.name.localeCompare(b.name, 'es'));
   $('#productGrid').innerHTML = products.map(p => `<article class="product-card">
     <div class="product-card-top"><div class="product-avatar">${escapeHTML(p.name.charAt(0).toUpperCase())}</div>${p.stock <= p.minStock ? `<span class="stock-pill">${p.stock === 0 ? 'Sin stock' : 'Stock bajo'}</span>` : ''}</div>
-    <h3>${escapeHTML(p.name)}</h3><p>Costo: ${money.format(p.cost)}</p>
+    <h3>${escapeHTML(p.name)}</h3><p>${p.barcode ? `Código: ${escapeHTML(p.barcode)} · ` : ''}Costo: ${money.format(p.cost)}</p>
     <div class="product-meta"><div class="product-price">${money.format(p.price)}</div><div class="stock-info">Stock<strong>${p.stock} unidades</strong></div></div>
     <div class="card-actions"><button class="secondary-btn" data-edit-product="${p.id}">Editar</button><button class="secondary-btn delete-btn" data-delete-product="${p.id}">Eliminar</button></div>
   </article>`).join('');
@@ -322,7 +332,9 @@ function handleExpenseSubmit(event) {
 function handleProductSubmit(event) {
   event.preventDefault();
   const id = $('#productId').value;
-  const productData = { name: $('#productName').value.trim(), price: toNumber($('#productPrice').value), cost: toNumber($('#productCost').value), stock: Math.max(0, Math.floor(toNumber($('#productStock').value))), minStock: Math.max(0, Math.floor(toNumber($('#productMinStock').value))) };
+  const productData = { name: $('#productName').value.trim(), barcode: $('#productBarcode').value.trim(), price: toNumber($('#productPrice').value), cost: toNumber($('#productCost').value), stock: Math.max(0, Math.floor(toNumber($('#productStock').value))), minStock: Math.max(0, Math.floor(toNumber($('#productMinStock').value))) };
+  const duplicateBarcode = productData.barcode && state.products.some(product => product.barcode === productData.barcode && product.id !== id);
+  if (duplicateBarcode) return notify('Ese código de barras ya pertenece a otro producto.', 'error');
   if (!productData.name || productData.price <= 0) return notify('Ingresa un nombre y precio válidos.', 'error');
   if (id) Object.assign(state.products.find(p => p.id === id), productData);
   else state.products.push({ id: uid('product'), ...productData });
@@ -357,7 +369,7 @@ function delegatedActions(event) {
   if (target.dataset.view) return setView(target.dataset.view);
   if (target.dataset.editProduct) {
     const p = state.products.find(item => item.id === target.dataset.editProduct); if (!p) return;
-    $('#productId').value = p.id; $('#productName').value = p.name; $('#productPrice').value = p.price; $('#productCost').value = p.cost; $('#productStock').value = p.stock; $('#productMinStock').value = p.minStock; $('#productModalTitle').textContent = 'Editar producto'; openModal('productModal');
+    $('#productId').value = p.id; $('#productName').value = p.name; $('#productBarcode').value = p.barcode || ''; $('#productPrice').value = p.price; $('#productCost').value = p.cost; $('#productStock').value = p.stock; $('#productMinStock').value = p.minStock; $('#productModalTitle').textContent = 'Editar producto'; openModal('productModal');
   }
   if (target.dataset.editClient) {
     const c = state.clients.find(item => item.id === target.dataset.editClient); if (!c) return;
@@ -386,6 +398,153 @@ function delegatedActions(event) {
   }
 }
 
+
+function vibrate(pattern = 70) {
+  if ('vibrate' in navigator) navigator.vibrate(pattern);
+}
+
+function setScannerStatus(message) {
+  $('#scannerStatus').textContent = message;
+}
+
+async function openScanner(mode) {
+  scannerMode = mode;
+  lastDetectedCode = '';
+  lastDetectedAt = 0;
+  $('#scannerTitle').textContent = mode === 'sale' ? 'Escanear producto para vender' : 'Escanear código del producto';
+  $('#manualBarcode').value = mode === 'product' ? $('#productBarcode').value : '';
+  $('#scannerModal').showModal();
+  await startScannerCamera();
+}
+
+async function startScannerCamera() {
+  await stopScannerCamera();
+  if (!navigator.mediaDevices?.getUserMedia) {
+    setScannerStatus('Este navegador no permite usar la cámara. Ingresa el código manualmente.');
+    return;
+  }
+  try {
+    setScannerStatus('Solicitando acceso a la cámara…');
+    scannerStream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { facingMode: { ideal: scannerFacingMode }, width: { ideal: 1920 }, height: { ideal: 1080 }, focusMode: { ideal: 'continuous' } }
+    });
+    const video = $('#scannerVideo');
+    video.srcObject = scannerStream;
+    await video.play();
+    configureTorchButton();
+    if ('BarcodeDetector' in window) {
+      const supported = await BarcodeDetector.getSupportedFormats().catch(() => []);
+      scannerDetector = new BarcodeDetector({ formats: supported.length ? supported : undefined });
+      setScannerStatus('Apunta el código dentro del recuadro');
+      scanVideoFrame();
+    } else {
+      setScannerStatus('Lectura automática no disponible aquí. Usa Chrome en Android o ingresa el código manualmente.');
+    }
+  } catch (error) {
+    console.error('No se pudo abrir la cámara:', error);
+    const message = error.name === 'NotAllowedError' ? 'Permiso de cámara denegado. Actívalo en el navegador.' : 'No se pudo abrir la cámara. Prueba cambiar de cámara o usa el ingreso manual.';
+    setScannerStatus(message);
+  }
+}
+
+function configureTorchButton() {
+  const track = scannerStream?.getVideoTracks()[0];
+  const capabilities = track?.getCapabilities?.() || {};
+  $('#torchBtn').disabled = !capabilities.torch;
+  torchEnabled = false;
+  $('#torchBtn').textContent = '🔦 Linterna';
+}
+
+async function toggleTorch() {
+  const track = scannerStream?.getVideoTracks()[0];
+  if (!track) return;
+  try {
+    torchEnabled = !torchEnabled;
+    await track.applyConstraints({ advanced: [{ torch: torchEnabled }] });
+    $('#torchBtn').textContent = torchEnabled ? '🔦 Apagar linterna' : '🔦 Linterna';
+  } catch (error) {
+    torchEnabled = false;
+    $('#torchBtn').textContent = '🔦 Linterna';
+    notify('La linterna no está disponible en esta cámara.', 'error');
+  }
+}
+
+async function scanVideoFrame() {
+  if (!scannerStream || !scannerDetector || !$('#scannerModal').open) return;
+  const video = $('#scannerVideo');
+  try {
+    if (video.readyState >= 2) {
+      const codes = await scannerDetector.detect(video);
+      if (codes.length) {
+        const code = String(codes[0].rawValue || '').trim();
+        const now = Date.now();
+        if (code && (code !== lastDetectedCode || now - lastDetectedAt > 1800)) {
+          lastDetectedCode = code;
+          lastDetectedAt = now;
+          applyScannedCode(code);
+          return;
+        }
+      }
+    }
+  } catch (error) {
+    console.debug('Lectura omitida:', error);
+  }
+  scannerLoopId = requestAnimationFrame(scanVideoFrame);
+}
+
+function applyScannedCode(code) {
+  if (!code) return notify('Ingresa un código válido.', 'error');
+  if (scannerMode === 'product') {
+    const duplicate = state.products.find(product => product.barcode === code && product.id !== $('#productId').value);
+    if (duplicate) {
+      vibrate([100, 70, 100]);
+      setScannerStatus(`El código ya pertenece a ${duplicate.name}`);
+      return notify(`El código ya pertenece a ${duplicate.name}.`, 'error');
+    }
+    $('#productBarcode').value = code;
+    vibrate(80);
+    notify(`Código ${code} agregado al producto.`);
+    closeScanner();
+    return;
+  }
+  const product = state.products.find(item => item.barcode === code);
+  if (!product) {
+    vibrate([100, 60, 100]);
+    setScannerStatus(`Código ${code} no registrado`);
+    notify('Producto no encontrado. Regístralo primero en Inventario.', 'error');
+    return;
+  }
+  if (product.stock <= 0) {
+    vibrate([120, 70, 120]);
+    setScannerStatus(`${product.name} está sin stock`);
+    notify(`${product.name} no tiene stock disponible.`, 'error');
+    return;
+  }
+  setSaleType('product');
+  $('#saleProduct').value = product.id;
+  syncProductSale();
+  vibrate(80);
+  notify(`${product.name} seleccionado.`);
+  closeScanner();
+}
+
+async function stopScannerCamera() {
+  if (scannerLoopId) cancelAnimationFrame(scannerLoopId);
+  scannerLoopId = null;
+  scannerDetector = null;
+  if (scannerStream) scannerStream.getTracks().forEach(track => track.stop());
+  scannerStream = null;
+  const video = $('#scannerVideo');
+  if (video) video.srcObject = null;
+  torchEnabled = false;
+}
+
+async function closeScanner() {
+  await stopScannerCamera();
+  if ($('#scannerModal').open) $('#scannerModal').close();
+}
+
 function init() {
   $('#todayLabel').textContent = new Intl.DateTimeFormat('es-PE', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date());
   document.addEventListener('click', delegatedActions);
@@ -393,6 +552,13 @@ function init() {
   $$('dialog').forEach(dialog => dialog.addEventListener('click', event => { if (event.target === dialog) dialog.close(); }));
   $('#quickSaleBtn').addEventListener('click', () => openModal('saleModal'));
   $('#mobileQuickSale').addEventListener('click', () => openModal('saleModal'));
+  $$('[data-scan-target]').forEach(button => button.addEventListener('click', () => openScanner(button.dataset.scanTarget)));
+  $('#scannerCloseBtn').addEventListener('click', closeScanner);
+  $('#torchBtn').addEventListener('click', toggleTorch);
+  $('#switchCameraBtn').addEventListener('click', async () => { scannerFacingMode = scannerFacingMode === 'environment' ? 'user' : 'environment'; await startScannerCamera(); });
+  $('#useManualBarcodeBtn').addEventListener('click', () => applyScannedCode($('#manualBarcode').value.trim()));
+  $('#manualBarcode').addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); applyScannedCode(event.target.value.trim()); } });
+  $('#scannerModal').addEventListener('close', stopScannerCamera);
   $('#saleForm').addEventListener('submit', handleSaleSubmit);
   $('#expenseForm').addEventListener('submit', handleExpenseSubmit);
   $('#productForm').addEventListener('submit', handleProductSubmit);

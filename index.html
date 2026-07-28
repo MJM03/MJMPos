@@ -197,7 +197,10 @@
       <div class="modal-body">
         <div class="segmented-control"><button type="button" class="segment active" data-sale-type="product">Por producto</button><button type="button" class="segment" data-sale-type="free">Monto libre</button></div>
         <div id="productSaleFields">
-          <label>Producto<select id="saleProduct" required></select></label>
+          <div class="scanner-field-row">
+            <label>Producto<select id="saleProduct" required></select></label>
+            <button type="button" class="scan-trigger" data-scan-target="sale" aria-label="Escanear producto">▣ Escanear</button>
+          </div>
           <div class="form-grid two"><label>Cantidad<input id="saleQuantity" type="number" min="1" step="1" value="1" required></label><label>Precio unitario<input id="saleUnitPrice" type="number" min="0.01" step="0.01" required></label></div>
           <p id="availableStock" class="helper-text"></p>
         </div>
@@ -228,6 +231,10 @@
       <div class="modal-header"><div><span class="section-kicker">Inventario</span><h2 id="productModalTitle">Nuevo producto</h2></div><button type="button" class="icon-btn modal-close">×</button></div>
       <div class="modal-body">
         <label>Nombre<input id="productName" type="text" maxlength="80" required></label>
+        <div class="scanner-field-row">
+          <label>Código de barras<input id="productBarcode" type="text" inputmode="numeric" maxlength="64" placeholder="Escanea o escribe el código"></label>
+          <button type="button" class="scan-trigger" data-scan-target="product" aria-label="Escanear código de barras">▣ Escanear</button>
+        </div>
         <div class="form-grid two"><label>Precio de venta<input id="productPrice" type="number" min="0.01" step="0.01" required></label><label>Costo unitario<input id="productCost" type="number" min="0" step="0.01" value="0"></label></div>
         <div class="form-grid two"><label>Stock actual<input id="productStock" type="number" min="0" step="1" required></label><label>Alerta de stock bajo<input id="productMinStock" type="number" min="0" step="1" value="5" required></label></div>
       </div>
@@ -259,6 +266,31 @@
       </div>
       <div class="modal-footer"><button type="button" class="secondary-btn modal-close">Cancelar</button><button type="submit" class="primary-btn">Registrar pago</button></div>
     </form>
+  </dialog>
+
+
+
+  <dialog id="scannerModal" class="modal scanner-modal">
+    <div class="scanner-shell">
+      <div class="modal-header scanner-header">
+        <div><span class="section-kicker">Cámara</span><h2 id="scannerTitle">Escanear código</h2></div>
+        <button type="button" id="scannerCloseBtn" class="icon-btn" aria-label="Cerrar escáner">×</button>
+      </div>
+      <div class="scanner-stage">
+        <video id="scannerVideo" autoplay muted playsinline></video>
+        <div class="scanner-overlay" aria-hidden="true"><div class="scanner-frame"><span></span></div></div>
+        <div id="scannerStatus" class="scanner-status">Preparando cámara…</div>
+      </div>
+      <div class="scanner-controls">
+        <button type="button" id="torchBtn" class="secondary-btn" disabled>🔦 Linterna</button>
+        <button type="button" id="switchCameraBtn" class="secondary-btn">↻ Cambiar cámara</button>
+      </div>
+      <div class="manual-code-box">
+        <label>Ingreso manual
+          <div class="manual-code-row"><input id="manualBarcode" type="text" inputmode="numeric" placeholder="Escribe el código"><button type="button" id="useManualBarcodeBtn" class="primary-btn">Usar código</button></div>
+        </label>
+      </div>
+    </div>
   </dialog>
 
   <script src="app.js" defer></script>
