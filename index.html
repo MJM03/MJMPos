@@ -216,7 +216,7 @@
             <h2>Diagnóstico del sistema</h2>
             <p>Revisa datos, inventario, ventas, fiados, PWA, escáner y rendimiento sin modificar tus registros.</p>
           </div>
-          <button id="runFullDiagnosticBtn" class="primary-btn">▶ Ejecutar prueba completa</button>
+          <button id="runFullDiagnosticBtn" class="primary-btn">▶ Probar app completa</button>
         </div>
 
         <div class="diagnostic-hero panel">
@@ -251,6 +251,17 @@
             </div>
           </article>
         </div>
+
+        <article class="panel developer-suite-panel">
+          <div class="panel-header developer-suite-header">
+            <div><span class="section-kicker">Modo desarrollador</span><h2>Pruebas funcionales de la app</h2><p class="panel-subtitle">Simulan operaciones completas en una tienda temporal. Tus datos reales no se modifican.</p></div>
+            <button id="runFunctionalSuiteBtn" class="primary-btn">⚙ Ejecutar pruebas funcionales</button>
+          </div>
+          <div class="developer-safety-note"><span>🛡</span><div><strong>Entorno aislado</strong><p>Las pruebas usan una copia temporal en memoria y verifican los resultados esperados antes de descartarla.</p></div></div>
+          <div id="functionalTestGrid" class="functional-test-grid"></div>
+          <div id="functionalSuiteSummary" class="functional-suite-summary hidden"></div>
+          <div id="functionalTestResults" class="functional-test-results"><div class="empty-state">Ejecuta toda la suite o una prueba individual para comprobar los flujos reales de la aplicación.</div></div>
+        </article>
       </section>
     </main>
 
