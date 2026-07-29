@@ -146,7 +146,7 @@ function notify(message, type = 'success') {
 function setView(viewId) {
   $$('.view').forEach(view => view.classList.toggle('active', view.id === viewId));
   $$('[data-view]').forEach(button => button.classList.toggle('active', button.dataset.view === viewId));
-  const titles = { dashboard: 'Resumen', ventas: 'Ventas', gastos: 'Gastos', inventario: 'Inventario', clientes: 'Clientes y fiados' };
+  const titles = { dashboard: 'Resumen', ventas: 'Ventas', gastos: 'Gastos', inventario: 'Inventario', clientes: 'Clientes y fiados', diagnostico: 'Diagnóstico del sistema' };
   $('#pageTitle').textContent = titles[viewId] || 'Negocio Simple';
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -649,7 +649,7 @@ function renderAll() {
 function setView(viewId) {
   $$('.view').forEach(view => view.classList.toggle('active', view.id === viewId));
   $$('[data-view]').forEach(button => button.classList.toggle('active', button.dataset.view === viewId));
-  const titles = { dashboard: 'Resumen', ventas: 'Ventas', gastos: 'Gastos', inventario: 'Inventario', clientes: 'Clientes y fiados', kardex: 'Kardex de inventario' };
+  const titles = { dashboard: 'Resumen', ventas: 'Ventas', gastos: 'Gastos', inventario: 'Inventario', clientes: 'Clientes y fiados', kardex: 'Kardex de inventario', diagnostico: 'Diagnóstico del sistema' };
   $('#pageTitle').textContent = titles[viewId] || 'Negocio Simple';
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -811,3 +811,207 @@ function renderBusinessPulse(){
 }
 const originalRenderDashboardV5=renderDashboard;
 renderDashboard=function(){originalRenderDashboardV5();renderBusinessPulse();};
+
+/* ===== V6 · Diagnóstico completo e individual ===== */
+const DIAGNOSTIC_TESTS = [
+  { id:'storage', icon:'◫', name:'Almacenamiento local', description:'Estructura, persistencia y espacio disponible.' },
+  { id:'products', icon:'▦', name:'Productos e inventario', description:'Campos, códigos, precios, costos y stocks.' },
+  { id:'kardex', icon:'≋', name:'Kardex', description:'Secuencia, saldos y referencias de movimientos.' },
+  { id:'sales', icon:'↗', name:'Ventas y boletas', description:'Totales, productos, stock y numeración.' },
+  { id:'clients', icon:'◎', name:'Clientes y fiados', description:'Deudas, abonos y relaciones entre registros.' },
+  { id:'expenses', icon:'↘', name:'Gastos', description:'Montos, fechas, categorías y métodos.' },
+  { id:'scanner', icon:'▣', name:'Escáner y cámara', description:'HTTPS, permisos y motores disponibles.' },
+  { id:'pwa', icon:'⬡', name:'PWA y modo offline', description:'Manifest, Service Worker e instalación.' },
+  { id:'performance', icon:'⚡', name:'Rendimiento', description:'Volumen, peso de datos y tiempos de análisis.' }
+];
+
+let lastDiagnosticReport = null;
+
+function diagnosticFinding(level, title, detail, suggestion='') {
+  return { level, title, detail, suggestion };
+}
+
+function validDate(value){ const d=new Date(value); return value && !Number.isNaN(d.getTime()); }
+function finiteNonNegative(value){ return Number.isFinite(Number(value)) && Number(value)>=0; }
+function duplicateValues(items){ const seen=new Set(), dup=new Set(); items.filter(Boolean).forEach(v=>seen.has(v)?dup.add(v):seen.add(v)); return [...dup]; }
+
+const diagnosticRunners = {
+  async storage(){
+    const out=[];
+    try{
+      const raw=localStorage.getItem(STORAGE_KEY);
+      if(!raw) out.push(diagnosticFinding('fail','No existe una base local','No se encontró el estado principal en localStorage.','Restablece los datos o registra un elemento para recrear la base.'));
+      else {
+        const parsed=JSON.parse(raw);
+        const required=['products','sales','expenses','clients','payments','kardex'];
+        const missing=required.filter(k=>!Array.isArray(parsed[k]));
+        if(missing.length) out.push(diagnosticFinding('fail','Estructura incompleta',`Faltan colecciones: ${missing.join(', ')}.`,'Exporta una copia y restablece los datos.'));
+        else out.push(diagnosticFinding('pass','Base local legible',`Se encontraron las ${required.length} colecciones principales sin errores de formato.`));
+        const kb=new Blob([raw]).size/1024;
+        out.push(diagnosticFinding(kb>3500?'warn':'pass','Tamaño de la base local',`${kb.toFixed(1)} KB almacenados en este dispositivo.`,kb>3500?'Conviene archivar datos antiguos o migrar a una base de datos.':''));
+      }
+    }catch(error){ out.push(diagnosticFinding('fail','Datos locales dañados',error.message,'No borres la información aún. Exporta el reporte y realiza una recuperación controlada.')); }
+    try{
+      if(navigator.storage?.estimate){ const e=await navigator.storage.estimate(); const used=e.usage||0, quota=e.quota||0, pct=quota?used/quota*100:0; out.push(diagnosticFinding(pct>80?'warn':'info','Espacio del navegador',`${(used/1048576).toFixed(1)} MB usados de ${(quota/1048576).toFixed(1)} MB estimados (${pct.toFixed(1)}%).`,pct>80?'Libera espacio antes de continuar registrando datos.':'')); }
+      else out.push(diagnosticFinding('info','Estimación de espacio no disponible','Este navegador no permite consultar la cuota de almacenamiento.'));
+    }catch{}
+    return out;
+  },
+  async products(){
+    const out=[]; const products=state.products||[];
+    if(!products.length) return [diagnosticFinding('warn','Inventario vacío','No existen productos para analizar.','Registra al menos un producto.')];
+    const bad=products.filter(p=>!p.id||!p.name||!finiteNonNegative(p.price)||!finiteNonNegative(p.stock)||!finiteNonNegative(p.minStock));
+    out.push(diagnosticFinding(bad.length?'fail':'pass',bad.length?'Productos con campos inválidos':'Estructura de productos correcta',bad.length?`${bad.length} productos tienen nombre, precio, stock o identificador inválido.`:`${products.length.toLocaleString('es-PE')} productos revisados.`,'Revisa los productos señalados y corrige sus campos.'));
+    const duplicateBarcodes=duplicateValues(products.map(p=>String(p.barcode||'').trim()));
+    out.push(diagnosticFinding(duplicateBarcodes.length?'fail':'pass',duplicateBarcodes.length?'Códigos de barras duplicados':'Códigos de barras únicos',duplicateBarcodes.length?`${duplicateBarcodes.length} códigos están asignados a más de un producto.`:'No se encontraron códigos repetidos.',duplicateBarcodes.length?`Duplicados: ${duplicateBarcodes.slice(0,5).join(', ')}${duplicateBarcodes.length>5?'…':''}`:''));
+    const negative=products.filter(p=>Number(p.stock)<0);
+    out.push(diagnosticFinding(negative.length?'fail':'pass','Control de stock negativo',negative.length?`${negative.length} productos tienen stock menor que cero.`:'Ningún producto presenta stock negativo.',negative.length?'Realiza un ajuste mediante Kardex, no editando el historial.':''));
+    const low=products.filter(p=>Number(p.stock)<=Number(p.minStock));
+    out.push(diagnosticFinding(low.length?'warn':'pass','Alertas de reposición',low.length?`${low.length} productos están en stock mínimo o agotados.`:'Todos los productos están por encima de su mínimo.',low.length?'Revisa la lista de stock bajo y registra una entrada.':''));
+    const marginIssues=products.filter(p=>Number(p.cost)>Number(p.price));
+    if(marginIssues.length) out.push(diagnosticFinding('warn','Productos vendidos bajo costo',`${marginIssues.length} productos tienen costo mayor al precio de venta.`,'Revisa precios y costos para evitar márgenes negativos.'));
+    return out;
+  },
+  async kardex(){
+    const out=[]; const rows=state.kardex||[];
+    if(!rows.length) return [diagnosticFinding('warn','Kardex vacío','No hay movimientos para validar.','Registra movimientos de stock desde el módulo Kardex.')];
+    const unknown=rows.filter(k=>!state.products.some(p=>p.id===k.productId));
+    out.push(diagnosticFinding(unknown.length?'fail':'pass','Productos vinculados',unknown.length?`${unknown.length} movimientos apuntan a productos inexistentes.`:'Todos los movimientos pertenecen a productos existentes.',unknown.length?'No elimines productos con historial. Recupera el producto o corrige la referencia.':''));
+    const invalid=rows.filter(k=>!validDate(k.date)||!finiteNonNegative(k.quantity)||!Number.isFinite(Number(k.previousStock))||!Number.isFinite(Number(k.newStock)));
+    out.push(diagnosticFinding(invalid.length?'fail':'pass','Formato de movimientos',invalid.length?`${invalid.length} movimientos contienen fechas o cantidades inválidas.`:`${rows.length.toLocaleString('es-PE')} movimientos tienen formato válido.`,invalid.length?'Exporta el reporte antes de corregir esos registros.':''));
+    const brokenMath=rows.filter(k=>{ const q=Number(k.quantity),a=Number(k.previousStock),b=Number(k.newStock); if(k.type==='entrada')return b!==a+q;if(k.type==='salida')return b!==a-q;if(k.type==='ajuste')return b<0;return true; });
+    out.push(diagnosticFinding(brokenMath.length?'fail':'pass','Cálculo de saldos',brokenMath.length?`${brokenMath.length} movimientos no coinciden con su stock anterior, cantidad y stock final.`:'Las operaciones matemáticas del Kardex son coherentes.',brokenMath.length?'Revisa los movimientos de ajuste o corrección indicados.':''));
+    let mismatches=0;
+    state.products.forEach(p=>{ const latest=rows.filter(k=>k.productId===p.id&&validDate(k.date)).sort((a,b)=>new Date(b.date)-new Date(a.date))[0]; if(latest&&Number(latest.newStock)!==Number(p.stock)) mismatches++; });
+    out.push(diagnosticFinding(mismatches?'warn':'pass','Kardex frente al stock actual',mismatches?`${mismatches} productos no coinciden con el saldo de su último movimiento.`:'El stock actual coincide con el último saldo registrado.',mismatches?'Puede existir una edición antigua o movimientos con la misma fecha. Realiza un conteo físico antes de ajustar.':''));
+    return out;
+  },
+  async sales(){
+    const out=[]; const sales=state.sales||[];
+    if(!sales.length) return [diagnosticFinding('warn','Sin ventas','No existen ventas para analizar.')];
+    const invalid=sales.filter(s=>!s.id||!validDate(s.date)||!finiteNonNegative(s.total)||Number(s.total)<=0||!finiteNonNegative(s.quantity)||Number(s.quantity)<=0);
+    out.push(diagnosticFinding(invalid.length?'fail':'pass','Estructura de ventas',invalid.length?`${invalid.length} ventas tienen fecha, cantidad o total inválido.`:`${sales.length.toLocaleString('es-PE')} ventas revisadas.`,invalid.length?'Edita o anula las ventas afectadas.':''));
+    const totalMismatch=sales.filter(s=>Math.abs(Number(s.total)-(Number(s.quantity)*Number(s.unitPrice)))>.011);
+    out.push(diagnosticFinding(totalMismatch.length?'fail':'pass','Cálculo de totales',totalMismatch.length?`${totalMismatch.length} ventas no coinciden con cantidad × precio unitario.`:'Todos los totales coinciden con su detalle.',totalMismatch.length?'Corrige las ventas desde su botón de edición.':''));
+    const orphan=sales.filter(s=>s.productId&&!state.products.some(p=>p.id===s.productId));
+    out.push(diagnosticFinding(orphan.length?'fail':'pass','Productos de las ventas',orphan.length?`${orphan.length} ventas refieren productos eliminados.`:'Todas las ventas por producto tienen una referencia válida.'));
+    const numbers=sales.map(s=>s.receiptNumber).filter(Boolean); const dup=duplicateValues(numbers);
+    out.push(diagnosticFinding(dup.length?'fail':'pass','Numeración de boletas',dup.length?`${dup.length} números de boleta están repetidos.`:'No hay números de boleta duplicados.',dup.length?'Corrige la secuencia antes de emitir nuevas boletas.':''));
+    const noReceipt=sales.filter(s=>!s.receiptNumber).length;
+    if(noReceipt) out.push(diagnosticFinding('warn','Ventas sin número visible',`${noReceipt} ventas antiguas generan su número de boleta al abrirse.`,'Abre cada boleta o ejecuta una migración de numeración.'));
+    return out;
+  },
+  async clients(){
+    const out=[]; const clients=state.clients||[], sales=state.sales||[], payments=state.payments||[];
+    const bad=clients.filter(c=>!c.id||!String(c.name||'').trim());
+    out.push(diagnosticFinding(bad.length?'fail':'pass','Datos de clientes',bad.length?`${bad.length} clientes no tienen identificador o nombre.`:`${clients.length.toLocaleString('es-PE')} clientes revisados.`));
+    const orphanSales=sales.filter(s=>s.payment==='Fiado'&&(!s.clientId||!clients.some(c=>c.id===s.clientId)));
+    out.push(diagnosticFinding(orphanSales.length?'fail':'pass','Ventas fiadas vinculadas',orphanSales.length?`${orphanSales.length} fiados no tienen un cliente válido.`:'Todos los fiados están asociados a un cliente.',orphanSales.length?'Asigna un cliente o corrige el método de pago.':''));
+    const orphanPayments=payments.filter(p=>!clients.some(c=>c.id===p.clientId));
+    out.push(diagnosticFinding(orphanPayments.length?'fail':'pass','Abonos vinculados',orphanPayments.length?`${orphanPayments.length} abonos pertenecen a clientes inexistentes.`:'Todos los abonos tienen cliente válido.'));
+    const invalidPayments=payments.filter(p=>!validDate(p.date)||!finiteNonNegative(p.amount)||Number(p.amount)<=0);
+    out.push(diagnosticFinding(invalidPayments.length?'fail':'pass','Formato de abonos',invalidPayments.length?`${invalidPayments.length} abonos tienen fecha o monto inválido.`:`${payments.length.toLocaleString('es-PE')} abonos revisados.`));
+    let overpaid=0; clients.forEach(c=>{ const debt=sales.filter(s=>s.clientId===c.id&&s.payment==='Fiado').reduce((n,s)=>n+Number(s.total||0),0); const paid=payments.filter(p=>p.clientId===c.id).reduce((n,p)=>n+Number(p.amount||0),0); if(paid-debt>.01)overpaid++; });
+    out.push(diagnosticFinding(overpaid?'fail':'pass','Saldos por cobrar',overpaid?`${overpaid} clientes tienen abonos mayores que sus compras fiadas.`:'No existen clientes con saldo pagado en exceso.',overpaid?'Revisa o elimina los abonos incorrectos.':''));
+    return out;
+  },
+  async expenses(){
+    const out=[]; const rows=state.expenses||[];
+    if(!rows.length) return [diagnosticFinding('info','Sin gastos','No existen gastos para analizar.')];
+    const invalid=rows.filter(e=>!e.id||!String(e.description||'').trim()||!validDate(e.date)||!finiteNonNegative(e.amount)||Number(e.amount)<=0);
+    out.push(diagnosticFinding(invalid.length?'fail':'pass','Estructura de gastos',invalid.length?`${invalid.length} gastos tienen concepto, fecha o monto inválido.`:`${rows.length.toLocaleString('es-PE')} gastos revisados.`,invalid.length?'Edita o elimina los registros afectados.':''));
+    const future=rows.filter(e=>new Date(e.date)>new Date(Date.now()+86400000));
+    if(future.length) out.push(diagnosticFinding('warn','Gastos con fecha futura',`${future.length} gastos están fechados después de hoy.`,'Confirma si fueron programados o corrige la fecha.'));
+    const categories=new Set(rows.map(e=>e.category).filter(Boolean));
+    out.push(diagnosticFinding('info','Categorías utilizadas',`${categories.size} categorías diferentes en el historial.`));
+    return out;
+  },
+  async scanner(){
+    const out=[]; const secure=window.isSecureContext||['localhost','127.0.0.1'].includes(location.hostname);
+    out.push(diagnosticFinding(secure?'pass':'fail','Contexto seguro',secure?'La cámara puede solicitar permisos mediante HTTPS o localhost.':'La app no está bajo HTTPS; el navegador bloqueará la cámara.','Publica la app en GitHub Pages o usa localhost.'));
+    out.push(diagnosticFinding(navigator.mediaDevices?.getUserMedia?'pass':'fail','API de cámara',navigator.mediaDevices?.getUserMedia?'El navegador expone getUserMedia.':'El navegador no permite acceso estándar a la cámara.','Prueba con Safari actualizado en iPhone o Chrome en Android.'));
+    const native='BarcodeDetector' in window, zxing=Boolean(window.ZXingBrowser);
+    out.push(diagnosticFinding(native||zxing?'pass':'fail','Motores de lectura',native&&zxing?'BarcodeDetector y ZXing están disponibles.':native?'BarcodeDetector está disponible; ZXing no cargó.':zxing?'ZXing está disponible como motor principal.':'No se detectó ningún motor de códigos.','Comprueba la conexión inicial y que el CDN de ZXing no esté bloqueado.'));
+    try{
+      const devices=await navigator.mediaDevices?.enumerateDevices?.(); const cams=(devices||[]).filter(d=>d.kind==='videoinput');
+      out.push(diagnosticFinding(cams.length?'pass':'warn','Cámaras detectadas',cams.length?`${cams.length} dispositivo(s) de video encontrados.`:'No se enumeraron cámaras. Puede faltar conceder permiso.','Abre el escáner una vez y acepta el permiso.'));
+    }catch(error){out.push(diagnosticFinding('warn','No se pudieron enumerar cámaras',error.message,'Revisa permisos del navegador.'));}
+    out.push(diagnosticFinding('info','Linterna, enfoque y zoom','Estas capacidades dependen de la cámara trasera y solo pueden confirmarse mientras el escáner está abierto.'));
+    return out;
+  },
+  async pwa(){
+    const out=[];
+    out.push(diagnosticFinding('serviceWorker' in navigator?'pass':'fail','Service Worker','serviceWorker' in navigator?'El navegador soporta funcionamiento offline.':'El navegador no soporta Service Worker.'));
+    if('serviceWorker' in navigator){ const reg=await navigator.serviceWorker.getRegistration().catch(()=>null); out.push(diagnosticFinding(reg?'pass':'warn','Registro offline',reg?'El Service Worker está registrado.':'Todavía no hay un Service Worker activo.','Recarga la app desde HTTPS y espera unos segundos.')); }
+    try{const r=await fetch('manifest.json',{cache:'no-store'});const m=await r.json();const missing=['name','short_name','start_url','display'].filter(k=>!m[k]);out.push(diagnosticFinding(r.ok&&!missing.length?'pass':'fail','Manifest de instalación',r.ok&&!missing.length?'El manifest contiene los campos esenciales.':`Faltan o fallaron: ${missing.join(', ')||'archivo no disponible'}.`));}catch(error){out.push(diagnosticFinding('fail','Manifest inaccesible',error.message,'Comprueba que manifest.json esté en la raíz.'));}
+    try{const r=await fetch('sw.js',{cache:'no-store'});out.push(diagnosticFinding(r.ok?'pass':'fail','Archivo offline',r.ok?'sw.js está accesible desde la raíz.':'No se pudo cargar sw.js.'));}catch(error){out.push(diagnosticFinding('fail','Service Worker inaccesible',error.message));}
+    out.push(diagnosticFinding(matchMedia('(display-mode: standalone)').matches?'pass':'info','Modo de ejecución',matchMedia('(display-mode: standalone)').matches?'La aplicación está abierta como PWA instalada.':'La aplicación está abierta dentro del navegador.'));
+    return out;
+  },
+  async performance(){
+    const out=[]; const started=performance.now();
+    const total=(state.products?.length||0)+(state.sales?.length||0)+(state.expenses?.length||0)+(state.clients?.length||0)+(state.payments?.length||0)+(state.kardex?.length||0);
+    JSON.stringify(state); const elapsed=performance.now()-started;
+    out.push(diagnosticFinding(elapsed>120?'warn':'pass','Serialización del estado',`La base completa se procesó en ${elapsed.toFixed(1)} ms.`,elapsed>120?'El volumen empieza a ser alto para localStorage. Considera archivado o backend.':''));
+    out.push(diagnosticFinding(total>15000?'warn':'info','Volumen de registros',`${total.toLocaleString('es-PE')} registros combinados.`,total>15000?'Usa paginación y considera migrar a IndexedDB o Firebase.':''));
+    const domCount=document.getElementsByTagName('*').length;
+    out.push(diagnosticFinding(domCount>5000?'warn':'pass','Complejidad visual',`${domCount.toLocaleString('es-PE')} nodos renderizados actualmente.`,domCount>5000?'Aplica paginación o renderizado virtual en tablas grandes.':''));
+    if(performance.memory){const mb=performance.memory.usedJSHeapSize/1048576;out.push(diagnosticFinding(mb>150?'warn':'info','Memoria JavaScript',`${mb.toFixed(1)} MB usados aproximadamente.`,mb>150?'Recarga la app y reduce los registros visibles.':''));}
+    return out;
+  }
+};
+
+function renderDiagnosticTestGrid(){
+  const box=$('#diagnosticTestGrid'); if(!box)return;
+  box.innerHTML=DIAGNOSTIC_TESTS.map(t=>`<div class="diagnostic-test-card" data-diagnostic-card="${t.id}"><span class="diagnostic-test-icon">${t.icon}</span><div><strong>${t.name}</strong><p>${t.description}</p></div><button class="secondary-btn" data-run-diagnostic="${t.id}">Probar</button></div>`).join('');
+}
+
+function diagnosticLevelCounts(results){return results.reduce((a,r)=>(a[r.level]=(a[r.level]||0)+1,a),{pass:0,warn:0,fail:0,info:0});}
+function diagnosticScore(results){const relevant=results.filter(r=>r.level!=='info');if(!relevant.length)return 100;const penalty=relevant.reduce((n,r)=>n+(r.level==='fail'?18:r.level==='warn'?6:0),0);return Math.max(0,Math.round(100-penalty));}
+
+function renderDiagnosticReport(report){
+  lastDiagnosticReport=report; const counts=diagnosticLevelCounts(report.results),score=diagnosticScore(report.results);
+  const scoreBox=$('#diagnosticScore');scoreBox.style.setProperty('--score',`${score}%`);scoreBox.className=`diagnostic-score ${score>=85?'good':score>=65?'warning':'bad'}`;scoreBox.innerHTML=`<strong>${score}%</strong><span>${counts.fail?'Con errores':counts.warn?'Advertencias':'Saludable'}</span>`;
+  $('#diagnosticHeadline').textContent=counts.fail?`${counts.fail} error${counts.fail===1?'':'es'} requiere${counts.fail===1?'':'n'} atención`:counts.warn?`La app funciona con ${counts.warn} advertencia${counts.warn===1?'':'s'}`:'Todas las pruebas principales fueron aprobadas';
+  $('#diagnosticSummary').textContent=`${report.label}: ${report.results.length} comprobaciones ejecutadas en ${report.duration.toFixed(0)} ms.`;
+  $('#diagnosticResultsTitle').textContent=report.label;
+  $('#diagnosticLastRun').textContent=new Intl.DateTimeFormat('es-PE',{dateStyle:'short',timeStyle:'short'}).format(new Date(report.generatedAt));
+  $('#diagnosticCounters').classList.remove('hidden');
+  $('#diagnosticCounters').innerHTML=[['pass','Aprobadas','✓'],['warn','Advertencias','!'],['fail','Errores','×'],['info','Informativas','i']].map(([k,l])=>`<div class="diagnostic-counter"><strong>${counts[k]||0}</strong><span>${l}</span></div>`).join('');
+  const order={fail:0,warn:1,pass:2,info:3};
+  $('#diagnosticResults').innerHTML=[...report.results].sort((a,b)=>order[a.level]-order[b.level]).map(r=>`<article class="diagnostic-result ${r.level}"><span class="diagnostic-result-icon">${r.level==='pass'?'✓':r.level==='warn'?'!':r.level==='fail'?'×':'i'}</span><div><div class="diagnostic-category">${escapeHTML(r.category)}</div><h3>${escapeHTML(r.title)}</h3><p>${escapeHTML(r.detail)}</p>${r.suggestion?`<small><strong>Acción sugerida:</strong> ${escapeHTML(r.suggestion)}</small>`:''}</div></article>`).join('');
+  $('#copyDiagnosticBtn').disabled=false;$('#exportDiagnosticBtn').disabled=false;
+}
+
+async function runDiagnostic(ids){
+  const selected=DIAGNOSTIC_TESTS.filter(t=>ids.includes(t.id)); if(!selected.length)return;
+  const full=selected.length===DIAGNOSTIC_TESTS.length, start=performance.now(),results=[];
+  $('#runFullDiagnosticBtn').disabled=true;$('#diagnosticProgress').classList.remove('hidden');$('#diagnosticResultsTitle').textContent='Analizando…';
+  $('#diagnosticResults').innerHTML='<div class="diagnostic-running"><span class="diagnostic-spinner"></span><span>Revisando la app sin modificar tus datos…</span></div>';
+  for(let i=0;i<selected.length;i++){
+    const test=selected[i],card=document.querySelector(`[data-diagnostic-card="${test.id}"]`);card?.classList.add('running');
+    $('#diagnosticProgress span').style.width=`${Math.round((i/selected.length)*100)}%`;
+    try{const findings=await diagnosticRunners[test.id]();findings.forEach(f=>results.push({...f,category:test.name}));card?.classList.add(findings.some(f=>f.level==='fail')?'failed':'passed');}
+    catch(error){results.push({...diagnosticFinding('fail','La prueba no pudo completarse',error.message,'Copia el reporte y revisa la consola del navegador.'),category:test.name});card?.classList.add('failed');}
+    finally{card?.classList.remove('running');}
+    await new Promise(r=>setTimeout(r,60));
+  }
+  $('#diagnosticProgress span').style.width='100%';
+  const report={app:'Negocio Simple',version:'6.0',type:full?'complete':'individual',label:full?'Prueba completa':selected.map(t=>t.name).join(', '),generatedAt:new Date().toISOString(),duration:performance.now()-start,summary:{products:state.products.length,sales:state.sales.length,expenses:state.expenses.length,clients:state.clients.length,payments:state.payments.length,kardex:state.kardex.length},results};
+  renderDiagnosticReport(report); $('#runFullDiagnosticBtn').disabled=false;setTimeout(()=>$('#diagnosticProgress').classList.add('hidden'),400);
+}
+
+function diagnosticReportText(report){
+  const counts=diagnosticLevelCounts(report.results);return [`NEGOCIO SIMPLE · REPORTE DE DIAGNÓSTICO`,`Fecha: ${new Date(report.generatedAt).toLocaleString('es-PE')}`,`Tipo: ${report.label}`,`Resultado: ${diagnosticScore(report.results)}%`,`Aprobadas: ${counts.pass||0} | Advertencias: ${counts.warn||0} | Errores: ${counts.fail||0} | Informativas: ${counts.info||0}`,'',...report.results.map(r=>`[${r.level.toUpperCase()}] ${r.category} · ${r.title}\n${r.detail}${r.suggestion?`\nAcción sugerida: ${r.suggestion}`:''}`)].join('\n\n');
+}
+async function copyDiagnosticReport(){if(!lastDiagnosticReport)return;const text=diagnosticReportText(lastDiagnosticReport);try{await navigator.clipboard.writeText(text);notify('Reporte copiado al portapapeles.')}catch{const ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();notify('Reporte copiado.')}}
+function exportDiagnosticReport(){if(!lastDiagnosticReport)return;const blob=new Blob([JSON.stringify(lastDiagnosticReport,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`diagnostico-negocio-simple-${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+
+document.addEventListener('DOMContentLoaded',()=>{
+  renderDiagnosticTestGrid();
+  $('#runFullDiagnosticBtn')?.addEventListener('click',()=>runDiagnostic(DIAGNOSTIC_TESTS.map(t=>t.id)));
+  $('#copyDiagnosticBtn')?.addEventListener('click',copyDiagnosticReport);
+  $('#exportDiagnosticBtn')?.addEventListener('click',exportDiagnosticReport);
+  $('#diagnosticTopBtn')?.addEventListener('click',()=>setView('diagnostico'));
+  document.addEventListener('click',e=>{const b=e.target.closest('[data-run-diagnostic]');if(b)runDiagnostic([b.dataset.runDiagnostic]);});
+});

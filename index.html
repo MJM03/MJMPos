@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0f766e">
   <meta name="description" content="Gestión simple de ventas, gastos, inventario, clientes y fiados para pequeños negocios en Perú.">
-  <title>Negocio Simple · Demo comercial</title>
+  <title>Negocio Simple · Diagnóstico inteligente</title>
   <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -27,6 +27,7 @@
         <button class="nav-item" data-view="inventario"><span>▦</span>Inventario</button>
         <button class="nav-item" data-view="clientes"><span>◎</span>Clientes y fiados</button>
         <button class="nav-item" data-view="kardex"><span>≋</span>Kardex</button>
+        <button class="nav-item" data-view="diagnostico"><span>✓</span>Diagnóstico</button>
       </nav>
 
       <div class="sidebar-footer">
@@ -45,6 +46,7 @@
         </div>
         <div class="topbar-actions">
           <button id="themeToggle" class="icon-btn theme-toggle" type="button" aria-label="Cambiar tema" title="Modo nocturno">🌙</button>
+          <button id="diagnosticTopBtn" class="icon-btn" type="button" aria-label="Diagnóstico" title="Diagnóstico">✓</button>
           <button id="settingsBtn" class="icon-btn" type="button" aria-label="Configuración" title="Configuración">⚙</button>
           <span id="connectionBadge" class="status-badge">En línea</span>
           <button id="quickSaleBtn" class="primary-btn">+ Nueva venta</button>
@@ -204,6 +206,50 @@
           </div>
           <div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Producto</th><th>Movimiento</th><th>Cantidad</th><th>Stock anterior</th><th>Stock final</th><th>Motivo / referencia</th></tr></thead><tbody id="kardexTableBody"></tbody></table></div>
           <div id="kardexEmpty" class="empty-state hidden">No hay movimientos que coincidan.</div>
+        </div>
+      </section>
+
+      <section id="diagnostico" class="view">
+        <div class="section-toolbar diagnostic-toolbar">
+          <div>
+            <p class="eyebrow">Centro de control</p>
+            <h2>Diagnóstico del sistema</h2>
+            <p>Revisa datos, inventario, ventas, fiados, PWA, escáner y rendimiento sin modificar tus registros.</p>
+          </div>
+          <button id="runFullDiagnosticBtn" class="primary-btn">▶ Ejecutar prueba completa</button>
+        </div>
+
+        <div class="diagnostic-hero panel">
+          <div class="diagnostic-score-wrap">
+            <div id="diagnosticScore" class="diagnostic-score"><strong>—</strong><span>Sin evaluar</span></div>
+            <div>
+              <span class="section-kicker">Estado general</span>
+              <h2 id="diagnosticHeadline">La app está lista para ser analizada</h2>
+              <p id="diagnosticSummary" class="panel-subtitle">Ejecuta todas las pruebas o selecciona una categoría individual.</p>
+            </div>
+          </div>
+          <div class="diagnostic-actions">
+            <button id="copyDiagnosticBtn" class="secondary-btn" disabled>Copiar reporte</button>
+            <button id="exportDiagnosticBtn" class="secondary-btn" disabled>Exportar JSON</button>
+          </div>
+          <div id="diagnosticProgress" class="diagnostic-progress hidden"><span></span></div>
+        </div>
+
+        <div class="diagnostic-layout">
+          <article class="panel">
+            <div class="panel-header"><div><span class="section-kicker">Pruebas individuales</span><h2>Selecciona qué revisar</h2></div></div>
+            <div id="diagnosticTestGrid" class="diagnostic-test-grid"></div>
+          </article>
+          <article class="panel diagnostic-results-panel">
+            <div class="panel-header">
+              <div><span class="section-kicker">Resultados</span><h2 id="diagnosticResultsTitle">Aún no hay resultados</h2></div>
+              <span id="diagnosticLastRun" class="diagnostic-last-run"></span>
+            </div>
+            <div id="diagnosticCounters" class="diagnostic-counters hidden"></div>
+            <div id="diagnosticResults" class="diagnostic-results">
+              <div class="empty-state">Las comprobaciones aparecerán aquí con su gravedad, detalle y recomendación.</div>
+            </div>
+          </article>
         </div>
       </section>
     </main>
