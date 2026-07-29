@@ -31,6 +31,8 @@
 
       <div class="sidebar-footer">
         <button id="installBtn" class="secondary-btn hidden">Instalar app</button>
+        <button id="sidebarThemeBtn" class="ghost-btn">🌙 Modo nocturno</button>
+        <button id="sidebarSettingsBtn" class="ghost-btn">⚙ Datos del negocio</button>
         <button id="resetBtn" class="ghost-btn danger-text">Restablecer datos</button>
       </div>
     </aside>
@@ -42,6 +44,8 @@
           <h1 id="pageTitle">Resumen</h1>
         </div>
         <div class="topbar-actions">
+          <button id="themeToggle" class="icon-btn theme-toggle" type="button" aria-label="Cambiar tema" title="Modo nocturno">🌙</button>
+          <button id="settingsBtn" class="icon-btn" type="button" aria-label="Configuración" title="Configuración">⚙</button>
           <span id="connectionBadge" class="status-badge">En línea</span>
           <button id="quickSaleBtn" class="primary-btn">+ Nueva venta</button>
         </div>
@@ -337,6 +341,28 @@
     </div>
   </dialog>
 
+
+  <dialog id="receiptModal" class="modal receipt-modal">
+    <div class="modal-header"><div><span class="section-kicker">Comprobante</span><h2>Boleta de venta</h2></div><button type="button" class="icon-btn modal-close">×</button></div>
+    <div class="modal-body receipt-body"><canvas id="receiptCanvas" width="720" height="1100" aria-label="Vista previa de la boleta"></canvas><p class="helper-text center-text">La imagen se genera en tu dispositivo. Puedes imprimirla o compartirla con WhatsApp.</p></div>
+    <div class="modal-footer receipt-actions"><button type="button" id="downloadReceiptBtn" class="secondary-btn">Descargar imagen</button><button type="button" id="printReceiptBtn" class="secondary-btn">🖨 Imprimir</button><button type="button" id="shareReceiptBtn" class="primary-btn">WhatsApp / Compartir</button></div>
+  </dialog>
+
+  <dialog id="settingsModal" class="modal small-modal">
+    <form id="settingsForm" method="dialog">
+      <div class="modal-header"><div><span class="section-kicker">Configuración</span><h2>Datos del negocio</h2></div><button type="button" class="icon-btn modal-close">×</button></div>
+      <div class="modal-body">
+        <label>Nombre comercial<input id="businessName" maxlength="70" placeholder="Mi Negocio"></label>
+        <label>RUC / DNI<input id="businessTaxId" maxlength="20" inputmode="numeric" placeholder="Opcional"></label>
+        <label>Dirección<input id="businessAddress" maxlength="100" placeholder="Opcional"></label>
+        <label>Teléfono<input id="businessPhone" maxlength="20" inputmode="tel" placeholder="Opcional"></label>
+        <label>Mensaje al cliente<input id="businessFooter" maxlength="100" placeholder="¡Gracias por su compra!"></label>
+      </div>
+      <div class="modal-footer"><button type="button" class="secondary-btn modal-close">Cancelar</button><button type="submit" class="primary-btn">Guardar</button></div>
+    </form>
+  </dialog>
+
+  <script src="https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/umd/zxing-browser.min.js" defer></script>
   <script src="app.js" defer></script>
 </body>
 </html>
