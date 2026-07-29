@@ -97,6 +97,8 @@ let scannerMode = null;
 let scannerFacingMode = 'environment';
 let scannerLoopId = null;
 let scannerDetector = null;
+let productCreateContext = null;
+let pendingScannedBarcode = '';
 let torchEnabled = false;
 let lastDetectedCode = '';
 let lastDetectedAt = 0;
@@ -146,7 +148,7 @@ function notify(message, type = 'success') {
 function setView(viewId) {
   $$('.view').forEach(view => view.classList.toggle('active', view.id === viewId));
   $$('[data-view]').forEach(button => button.classList.toggle('active', button.dataset.view === viewId));
-  const titles = { dashboard: 'Resumen', ventas: 'Ventas', gastos: 'Gastos', inventario: 'Inventario', clientes: 'Clientes y fiados', diagnostico: 'Diagnóstico del sistema' };
+  const titles = { dashboard: 'Resumen', ventas: 'Ventas', gastos: 'Gastos', inventario: 'Inventario', clientes: 'Clientes y fiados' };
   $('#pageTitle').textContent = titles[viewId] || 'Negocio Simple';
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -363,9 +365,33 @@ function handleProductSubmit(event) {
   const duplicateBarcode = productData.barcode && state.products.some(product => product.barcode === productData.barcode && product.id !== id);
   if (duplicateBarcode) return notify('Ese código de barras ya pertenece a otro producto.', 'error');
   if (!productData.name || productData.price <= 0) return notify('Ingresa un nombre y precio válidos.', 'error');
-  if (id) Object.assign(state.products.find(p => p.id === id), productData);
-  else state.products.push({ id: uid('product'), ...productData });
-  saveState(); renderAll(); $('#productModal').close(); event.target.reset(); notify(id ? 'Producto actualizado.' : 'Producto creado.');
+  let product;
+  if (id) {
+    product = state.products.find(p => p.id === id);
+    Object.assign(product, productData);
+  } else {
+    product = { id: uid('product'), ...productData };
+    state.products.push(product);
+    if (product.stock > 0) addKardex(product, { type: 'entrada', quantity: product.stock, previousStock: 0, newStock: product.stock, reason: 'Stock inicial', reference: productCreateContext === 'sale' ? 'Producto creado durante una venta' : 'Alta de producto', sourceType: 'product_create', sourceId: product.id });
+  }
+  const returnToSale = productCreateContext === 'sale';
+  productCreateContext = 'saving';
+  saveState();
+  renderAll();
+  $('#productModal').close();
+  event.target.reset();
+  if (returnToSale) {
+    productCreateContext = null;
+    pendingScannedBarcode = '';
+    setSaleType('product');
+    $('#saleProduct').value = product.id;
+    syncProductSale();
+    if (!$('#saleModal').open) $('#saleModal').showModal();
+    notify(`${product.name} fue creado y seleccionado para la venta.`);
+  } else {
+    productCreateContext = null;
+    notify(id ? 'Producto actualizado.' : 'Producto creado.');
+  }
 }
 
 function handleClientSubmit(event) {
@@ -520,6 +546,21 @@ async function scanVideoFrame() {
   scannerLoopId = requestAnimationFrame(scanVideoFrame);
 }
 
+function openProductFromSale(barcode = '') {
+  productCreateContext = 'sale';
+  pendingScannedBarcode = String(barcode || '').trim();
+  const form = $('#productForm');
+  form.reset();
+  $('#productId').value = '';
+  $('#productModalTitle').textContent = 'Agregar producto para vender';
+  $('#productBarcode').value = pendingScannedBarcode;
+  $('#productStock').value = '1';
+  $('#productMinStock').value = '5';
+  $('#productCost').value = '0';
+  if (!$('#productModal').open) $('#productModal').showModal();
+  setTimeout(() => $('#productName').focus(), 80);
+}
+
 function applyScannedCode(code) {
   if (!code) return notify('Ingresa un código válido.', 'error');
   if (scannerMode === 'product') {
@@ -539,7 +580,8 @@ function applyScannedCode(code) {
   if (!product) {
     vibrate([100, 60, 100]);
     setScannerStatus(`Código ${code} no registrado`);
-    notify('Producto no encontrado. Regístralo primero en Inventario.', 'error');
+    notify('Producto no registrado. Completa sus datos para agregarlo a esta venta.');
+    closeScanner().then(() => setTimeout(() => openProductFromSale(code), 120));
     return;
   }
   if (product.stock <= 0) {
@@ -579,6 +621,7 @@ function init() {
   $$('dialog').forEach(dialog => dialog.addEventListener('click', event => { if (event.target === dialog) dialog.close(); }));
   $('#quickSaleBtn').addEventListener('click', () => openModal('saleModal'));
   $('#mobileQuickSale').addEventListener('click', () => openModal('saleModal'));
+  $('#addProductFromSaleBtn').addEventListener('click', () => openProductFromSale(''));
   $$('[data-scan-target]').forEach(button => button.addEventListener('click', () => openScanner(button.dataset.scanTarget)));
   $('#scannerCloseBtn').addEventListener('click', closeScanner);
   $('#torchBtn').addEventListener('click', toggleTorch);
@@ -600,7 +643,7 @@ function init() {
   ['expensesSearch', 'expenseCategoryFilter'].forEach(id => $(`#${id}`).addEventListener('input', renderExpenses));
   ['productsSearch', 'stockFilter'].forEach(id => $(`#${id}`).addEventListener('input', renderProducts));
   $('#clientsSearch').addEventListener('input', renderClients);
-  $('#productModal').addEventListener('close', () => { $('#productForm').reset(); $('#productId').value = ''; $('#productModalTitle').textContent = 'Nuevo producto'; });
+  $('#productModal').addEventListener('close', () => { $('#productForm').reset(); $('#productId').value = ''; $('#productModalTitle').textContent = 'Nuevo producto'; if (productCreateContext !== 'saving') { productCreateContext = null; pendingScannedBarcode = ''; } });
   $('#clientModal').addEventListener('close', () => { $('#clientForm').reset(); $('#clientId').value = ''; $('#clientModalTitle').textContent = 'Nuevo cliente'; });
   $('#resetBtn').addEventListener('click', () => { if (confirm('Esto eliminará todos tus datos locales y restaurará la demostración. ¿Continuar?')) { state = seed(); saveState(); renderAll(); notify('Datos restablecidos.'); } });
 
@@ -649,7 +692,7 @@ function renderAll() {
 function setView(viewId) {
   $$('.view').forEach(view => view.classList.toggle('active', view.id === viewId));
   $$('[data-view]').forEach(button => button.classList.toggle('active', button.dataset.view === viewId));
-  const titles = { dashboard: 'Resumen', ventas: 'Ventas', gastos: 'Gastos', inventario: 'Inventario', clientes: 'Clientes y fiados', kardex: 'Kardex de inventario', diagnostico: 'Diagnóstico del sistema' };
+  const titles = { dashboard: 'Resumen', ventas: 'Ventas', gastos: 'Gastos', inventario: 'Inventario', clientes: 'Clientes y fiados', kardex: 'Kardex de inventario' };
   $('#pageTitle').textContent = titles[viewId] || 'Negocio Simple';
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -729,7 +772,26 @@ function handleSaleSubmit(event) {
 
 function handleExpenseSubmit(event){event.preventDefault();const id=$('#expenseId').value,amount=toNumber($('#expenseAmount').value),description=$('#expenseDescription').value.trim();if(!description||amount<=0)return notify('Completa el concepto y monto.','error');const data={id:id||uid('expense'),date:new Date($('#expenseDateTime').value).toISOString(),description,category:$('#expenseCategory').value,amount,payment:$('#expensePayment').value};if(id)Object.assign(state.expenses.find(e=>e.id===id),data);else state.expenses.push(data);saveState();renderAll();$('#expenseModal').close();event.target.reset();$('#expenseId').value='';notify(id?'Gasto actualizado.':'Gasto registrado correctamente.');}
 
-function handleProductSubmit(event){event.preventDefault();const id=$('#productId').value;const data={name:$('#productName').value.trim(),barcode:$('#productBarcode').value.trim(),price:toNumber($('#productPrice').value),cost:toNumber($('#productCost').value),stock:Math.max(0,Math.floor(toNumber($('#productStock').value))),minStock:Math.max(0,Math.floor(toNumber($('#productMinStock').value)))};if(data.barcode&&state.products.some(p=>p.barcode===data.barcode&&p.id!==id))return notify('Ese código ya pertenece a otro producto.','error');if(!data.name||data.price<=0)return notify('Ingresa un nombre y precio válidos.','error');if(id){const p=state.products.find(x=>x.id===id),before=p.stock;Object.assign(p,data);if(before!==p.stock)addKardex(p,{type:'ajuste',quantity:Math.abs(p.stock-before),previousStock:before,newStock:p.stock,reason:'Stock modificado desde edición de producto',reference:'Edición manual',sourceType:'product_edit',sourceId:p.id});}else{const p={id:uid('product'),...data};state.products.push(p);if(p.stock>0)addKardex(p,{type:'entrada',quantity:p.stock,previousStock:0,newStock:p.stock,reason:'Stock inicial del producto',reference:'Alta de producto',sourceType:'product_create',sourceId:p.id});}saveState();renderAll();$('#productModal').close();event.target.reset();notify(id?'Producto actualizado.':'Producto creado.');}
+function handleProductSubmit(event){
+  event.preventDefault();
+  const id=$('#productId').value;
+  const data={name:$('#productName').value.trim(),barcode:$('#productBarcode').value.trim(),price:toNumber($('#productPrice').value),cost:toNumber($('#productCost').value),stock:Math.max(0,Math.floor(toNumber($('#productStock').value))),minStock:Math.max(0,Math.floor(toNumber($('#productMinStock').value)))};
+  if(data.barcode&&state.products.some(p=>p.barcode===data.barcode&&p.id!==id))return notify('Ese código ya pertenece a otro producto.','error');
+  if(!data.name||data.price<=0)return notify('Ingresa un nombre y precio válidos.','error');
+  let product;
+  if(id){
+    product=state.products.find(x=>x.id===id);const before=product.stock;Object.assign(product,data);
+    if(before!==product.stock)addKardex(product,{type:'ajuste',quantity:Math.abs(product.stock-before),previousStock:before,newStock:product.stock,reason:'Stock modificado desde edición de producto',reference:'Edición manual',sourceType:'product_edit',sourceId:product.id});
+  }else{
+    product={id:uid('product'),...data};state.products.push(product);
+    if(product.stock>0)addKardex(product,{type:'entrada',quantity:product.stock,previousStock:0,newStock:product.stock,reason:'Stock inicial del producto',reference:productCreateContext==='sale'?'Creado durante una venta':'Alta de producto',sourceType:'product_create',sourceId:product.id});
+  }
+  const returnToSale=productCreateContext==='sale';
+  productCreateContext='saving';
+  saveState();renderAll();$('#productModal').close();event.target.reset();
+  if(returnToSale){productCreateContext=null;pendingScannedBarcode='';setSaleType('product');$('#saleProduct').value=product.id;syncProductSale();if(!$('#saleModal').open)$('#saleModal').showModal();notify(`${product.name} fue creado y seleccionado para la venta.`);}
+  else{productCreateContext=null;notify(id?'Producto actualizado.':'Producto creado.');}
+}
 
 function handlePaymentSubmit(event){event.preventDefault();const id=$('#paymentId').value,clientId=$('#paymentClientId').value,amount=toNumber($('#paymentAmount').value),old=id?state.payments.find(p=>p.id===id):null;const debtWithoutOld=getClientDebt(clientId)+(old?.amount||0);if(amount<=0||amount>debtWithoutOld)return notify(`El abono no puede superar ${money.format(debtWithoutOld)}.`,'error');const data={id:id||uid('payment'),clientId,date:new Date($('#paymentDateTime').value).toISOString(),amount,method:$('#paymentMethod').value};if(old)Object.assign(old,data);else state.payments.push(data);saveState();renderAll();$('#paymentModal').close();event.target.reset();$('#paymentId').value='';notify(id?'Abono actualizado.':'Abono registrado correctamente.');}
 
@@ -812,273 +874,3 @@ function renderBusinessPulse(){
 const originalRenderDashboardV5=renderDashboard;
 renderDashboard=function(){originalRenderDashboardV5();renderBusinessPulse();};
 
-/* ===== V6 · Diagnóstico completo e individual ===== */
-const DIAGNOSTIC_TESTS = [
-  { id:'storage', icon:'◫', name:'Almacenamiento local', description:'Estructura, persistencia y espacio disponible.' },
-  { id:'products', icon:'▦', name:'Productos e inventario', description:'Campos, códigos, precios, costos y stocks.' },
-  { id:'kardex', icon:'≋', name:'Kardex', description:'Secuencia, saldos y referencias de movimientos.' },
-  { id:'sales', icon:'↗', name:'Ventas y boletas', description:'Totales, productos, stock y numeración.' },
-  { id:'clients', icon:'◎', name:'Clientes y fiados', description:'Deudas, abonos y relaciones entre registros.' },
-  { id:'expenses', icon:'↘', name:'Gastos', description:'Montos, fechas, categorías y métodos.' },
-  { id:'scanner', icon:'▣', name:'Escáner y cámara', description:'HTTPS, permisos y motores disponibles.' },
-  { id:'pwa', icon:'⬡', name:'PWA y modo offline', description:'Manifest, Service Worker e instalación.' },
-  { id:'performance', icon:'⚡', name:'Rendimiento', description:'Volumen, peso de datos y tiempos de análisis.' }
-];
-
-let lastDiagnosticReport = null;
-
-function diagnosticFinding(level, title, detail, suggestion='') {
-  return { level, title, detail, suggestion };
-}
-
-function validDate(value){ const d=new Date(value); return value && !Number.isNaN(d.getTime()); }
-function finiteNonNegative(value){ return Number.isFinite(Number(value)) && Number(value)>=0; }
-function duplicateValues(items){ const seen=new Set(), dup=new Set(); items.filter(Boolean).forEach(v=>seen.has(v)?dup.add(v):seen.add(v)); return [...dup]; }
-
-const diagnosticRunners = {
-  async storage(){
-    const out=[];
-    try{
-      const raw=localStorage.getItem(STORAGE_KEY);
-      if(!raw) out.push(diagnosticFinding('fail','No existe una base local','No se encontró el estado principal en localStorage.','Restablece los datos o registra un elemento para recrear la base.'));
-      else {
-        const parsed=JSON.parse(raw);
-        const required=['products','sales','expenses','clients','payments','kardex'];
-        const missing=required.filter(k=>!Array.isArray(parsed[k]));
-        if(missing.length) out.push(diagnosticFinding('fail','Estructura incompleta',`Faltan colecciones: ${missing.join(', ')}.`,'Exporta una copia y restablece los datos.'));
-        else out.push(diagnosticFinding('pass','Base local legible',`Se encontraron las ${required.length} colecciones principales sin errores de formato.`));
-        const kb=new Blob([raw]).size/1024;
-        out.push(diagnosticFinding(kb>3500?'warn':'pass','Tamaño de la base local',`${kb.toFixed(1)} KB almacenados en este dispositivo.`,kb>3500?'Conviene archivar datos antiguos o migrar a una base de datos.':''));
-      }
-    }catch(error){ out.push(diagnosticFinding('fail','Datos locales dañados',error.message,'No borres la información aún. Exporta el reporte y realiza una recuperación controlada.')); }
-    try{
-      if(navigator.storage?.estimate){ const e=await navigator.storage.estimate(); const used=e.usage||0, quota=e.quota||0, pct=quota?used/quota*100:0; out.push(diagnosticFinding(pct>80?'warn':'info','Espacio del navegador',`${(used/1048576).toFixed(1)} MB usados de ${(quota/1048576).toFixed(1)} MB estimados (${pct.toFixed(1)}%).`,pct>80?'Libera espacio antes de continuar registrando datos.':'')); }
-      else out.push(diagnosticFinding('info','Estimación de espacio no disponible','Este navegador no permite consultar la cuota de almacenamiento.'));
-    }catch{}
-    return out;
-  },
-  async products(){
-    const out=[]; const products=state.products||[];
-    if(!products.length) return [diagnosticFinding('warn','Inventario vacío','No existen productos para analizar.','Registra al menos un producto.')];
-    const bad=products.filter(p=>!p.id||!p.name||!finiteNonNegative(p.price)||!finiteNonNegative(p.stock)||!finiteNonNegative(p.minStock));
-    out.push(diagnosticFinding(bad.length?'fail':'pass',bad.length?'Productos con campos inválidos':'Estructura de productos correcta',bad.length?`${bad.length} productos tienen nombre, precio, stock o identificador inválido.`:`${products.length.toLocaleString('es-PE')} productos revisados.`,'Revisa los productos señalados y corrige sus campos.'));
-    const duplicateBarcodes=duplicateValues(products.map(p=>String(p.barcode||'').trim()));
-    out.push(diagnosticFinding(duplicateBarcodes.length?'fail':'pass',duplicateBarcodes.length?'Códigos de barras duplicados':'Códigos de barras únicos',duplicateBarcodes.length?`${duplicateBarcodes.length} códigos están asignados a más de un producto.`:'No se encontraron códigos repetidos.',duplicateBarcodes.length?`Duplicados: ${duplicateBarcodes.slice(0,5).join(', ')}${duplicateBarcodes.length>5?'…':''}`:''));
-    const negative=products.filter(p=>Number(p.stock)<0);
-    out.push(diagnosticFinding(negative.length?'fail':'pass','Control de stock negativo',negative.length?`${negative.length} productos tienen stock menor que cero.`:'Ningún producto presenta stock negativo.',negative.length?'Realiza un ajuste mediante Kardex, no editando el historial.':''));
-    const low=products.filter(p=>Number(p.stock)<=Number(p.minStock));
-    out.push(diagnosticFinding(low.length?'warn':'pass','Alertas de reposición',low.length?`${low.length} productos están en stock mínimo o agotados.`:'Todos los productos están por encima de su mínimo.',low.length?'Revisa la lista de stock bajo y registra una entrada.':''));
-    const marginIssues=products.filter(p=>Number(p.cost)>Number(p.price));
-    if(marginIssues.length) out.push(diagnosticFinding('warn','Productos vendidos bajo costo',`${marginIssues.length} productos tienen costo mayor al precio de venta.`,'Revisa precios y costos para evitar márgenes negativos.'));
-    return out;
-  },
-  async kardex(){
-    const out=[]; const rows=state.kardex||[];
-    if(!rows.length) return [diagnosticFinding('warn','Kardex vacío','No hay movimientos para validar.','Registra movimientos de stock desde el módulo Kardex.')];
-    const unknown=rows.filter(k=>!state.products.some(p=>p.id===k.productId));
-    out.push(diagnosticFinding(unknown.length?'fail':'pass','Productos vinculados',unknown.length?`${unknown.length} movimientos apuntan a productos inexistentes.`:'Todos los movimientos pertenecen a productos existentes.',unknown.length?'No elimines productos con historial. Recupera el producto o corrige la referencia.':''));
-    const invalid=rows.filter(k=>!validDate(k.date)||!finiteNonNegative(k.quantity)||!Number.isFinite(Number(k.previousStock))||!Number.isFinite(Number(k.newStock)));
-    out.push(diagnosticFinding(invalid.length?'fail':'pass','Formato de movimientos',invalid.length?`${invalid.length} movimientos contienen fechas o cantidades inválidas.`:`${rows.length.toLocaleString('es-PE')} movimientos tienen formato válido.`,invalid.length?'Exporta el reporte antes de corregir esos registros.':''));
-    const brokenMath=rows.filter(k=>{ const q=Number(k.quantity),a=Number(k.previousStock),b=Number(k.newStock); if(k.type==='entrada')return b!==a+q;if(k.type==='salida')return b!==a-q;if(k.type==='ajuste')return b<0;return true; });
-    out.push(diagnosticFinding(brokenMath.length?'fail':'pass','Cálculo de saldos',brokenMath.length?`${brokenMath.length} movimientos no coinciden con su stock anterior, cantidad y stock final.`:'Las operaciones matemáticas del Kardex son coherentes.',brokenMath.length?'Revisa los movimientos de ajuste o corrección indicados.':''));
-    let mismatches=0;
-    state.products.forEach(p=>{ const latest=rows.filter(k=>k.productId===p.id&&validDate(k.date)).sort((a,b)=>new Date(b.date)-new Date(a.date))[0]; if(latest&&Number(latest.newStock)!==Number(p.stock)) mismatches++; });
-    out.push(diagnosticFinding(mismatches?'warn':'pass','Kardex frente al stock actual',mismatches?`${mismatches} productos no coinciden con el saldo de su último movimiento.`:'El stock actual coincide con el último saldo registrado.',mismatches?'Puede existir una edición antigua o movimientos con la misma fecha. Realiza un conteo físico antes de ajustar.':''));
-    return out;
-  },
-  async sales(){
-    const out=[]; const sales=state.sales||[];
-    if(!sales.length) return [diagnosticFinding('warn','Sin ventas','No existen ventas para analizar.')];
-    const invalid=sales.filter(s=>!s.id||!validDate(s.date)||!finiteNonNegative(s.total)||Number(s.total)<=0||!finiteNonNegative(s.quantity)||Number(s.quantity)<=0);
-    out.push(diagnosticFinding(invalid.length?'fail':'pass','Estructura de ventas',invalid.length?`${invalid.length} ventas tienen fecha, cantidad o total inválido.`:`${sales.length.toLocaleString('es-PE')} ventas revisadas.`,invalid.length?'Edita o anula las ventas afectadas.':''));
-    const totalMismatch=sales.filter(s=>Math.abs(Number(s.total)-(Number(s.quantity)*Number(s.unitPrice)))>.011);
-    out.push(diagnosticFinding(totalMismatch.length?'fail':'pass','Cálculo de totales',totalMismatch.length?`${totalMismatch.length} ventas no coinciden con cantidad × precio unitario.`:'Todos los totales coinciden con su detalle.',totalMismatch.length?'Corrige las ventas desde su botón de edición.':''));
-    const orphan=sales.filter(s=>s.productId&&!state.products.some(p=>p.id===s.productId));
-    out.push(diagnosticFinding(orphan.length?'fail':'pass','Productos de las ventas',orphan.length?`${orphan.length} ventas refieren productos eliminados.`:'Todas las ventas por producto tienen una referencia válida.'));
-    const numbers=sales.map(s=>s.receiptNumber).filter(Boolean); const dup=duplicateValues(numbers);
-    out.push(diagnosticFinding(dup.length?'fail':'pass','Numeración de boletas',dup.length?`${dup.length} números de boleta están repetidos.`:'No hay números de boleta duplicados.',dup.length?'Corrige la secuencia antes de emitir nuevas boletas.':''));
-    const noReceipt=sales.filter(s=>!s.receiptNumber).length;
-    if(noReceipt) out.push(diagnosticFinding('warn','Ventas sin número visible',`${noReceipt} ventas antiguas generan su número de boleta al abrirse.`,'Abre cada boleta o ejecuta una migración de numeración.'));
-    return out;
-  },
-  async clients(){
-    const out=[]; const clients=state.clients||[], sales=state.sales||[], payments=state.payments||[];
-    const bad=clients.filter(c=>!c.id||!String(c.name||'').trim());
-    out.push(diagnosticFinding(bad.length?'fail':'pass','Datos de clientes',bad.length?`${bad.length} clientes no tienen identificador o nombre.`:`${clients.length.toLocaleString('es-PE')} clientes revisados.`));
-    const orphanSales=sales.filter(s=>s.payment==='Fiado'&&(!s.clientId||!clients.some(c=>c.id===s.clientId)));
-    out.push(diagnosticFinding(orphanSales.length?'fail':'pass','Ventas fiadas vinculadas',orphanSales.length?`${orphanSales.length} fiados no tienen un cliente válido.`:'Todos los fiados están asociados a un cliente.',orphanSales.length?'Asigna un cliente o corrige el método de pago.':''));
-    const orphanPayments=payments.filter(p=>!clients.some(c=>c.id===p.clientId));
-    out.push(diagnosticFinding(orphanPayments.length?'fail':'pass','Abonos vinculados',orphanPayments.length?`${orphanPayments.length} abonos pertenecen a clientes inexistentes.`:'Todos los abonos tienen cliente válido.'));
-    const invalidPayments=payments.filter(p=>!validDate(p.date)||!finiteNonNegative(p.amount)||Number(p.amount)<=0);
-    out.push(diagnosticFinding(invalidPayments.length?'fail':'pass','Formato de abonos',invalidPayments.length?`${invalidPayments.length} abonos tienen fecha o monto inválido.`:`${payments.length.toLocaleString('es-PE')} abonos revisados.`));
-    let overpaid=0; clients.forEach(c=>{ const debt=sales.filter(s=>s.clientId===c.id&&s.payment==='Fiado').reduce((n,s)=>n+Number(s.total||0),0); const paid=payments.filter(p=>p.clientId===c.id).reduce((n,p)=>n+Number(p.amount||0),0); if(paid-debt>.01)overpaid++; });
-    out.push(diagnosticFinding(overpaid?'fail':'pass','Saldos por cobrar',overpaid?`${overpaid} clientes tienen abonos mayores que sus compras fiadas.`:'No existen clientes con saldo pagado en exceso.',overpaid?'Revisa o elimina los abonos incorrectos.':''));
-    return out;
-  },
-  async expenses(){
-    const out=[]; const rows=state.expenses||[];
-    if(!rows.length) return [diagnosticFinding('info','Sin gastos','No existen gastos para analizar.')];
-    const invalid=rows.filter(e=>!e.id||!String(e.description||'').trim()||!validDate(e.date)||!finiteNonNegative(e.amount)||Number(e.amount)<=0);
-    out.push(diagnosticFinding(invalid.length?'fail':'pass','Estructura de gastos',invalid.length?`${invalid.length} gastos tienen concepto, fecha o monto inválido.`:`${rows.length.toLocaleString('es-PE')} gastos revisados.`,invalid.length?'Edita o elimina los registros afectados.':''));
-    const future=rows.filter(e=>new Date(e.date)>new Date(Date.now()+86400000));
-    if(future.length) out.push(diagnosticFinding('warn','Gastos con fecha futura',`${future.length} gastos están fechados después de hoy.`,'Confirma si fueron programados o corrige la fecha.'));
-    const categories=new Set(rows.map(e=>e.category).filter(Boolean));
-    out.push(diagnosticFinding('info','Categorías utilizadas',`${categories.size} categorías diferentes en el historial.`));
-    return out;
-  },
-  async scanner(){
-    const out=[]; const secure=window.isSecureContext||['localhost','127.0.0.1'].includes(location.hostname);
-    out.push(diagnosticFinding(secure?'pass':'fail','Contexto seguro',secure?'La cámara puede solicitar permisos mediante HTTPS o localhost.':'La app no está bajo HTTPS; el navegador bloqueará la cámara.','Publica la app en GitHub Pages o usa localhost.'));
-    out.push(diagnosticFinding(navigator.mediaDevices?.getUserMedia?'pass':'fail','API de cámara',navigator.mediaDevices?.getUserMedia?'El navegador expone getUserMedia.':'El navegador no permite acceso estándar a la cámara.','Prueba con Safari actualizado en iPhone o Chrome en Android.'));
-    const native='BarcodeDetector' in window, zxing=Boolean(window.ZXingBrowser);
-    out.push(diagnosticFinding(native||zxing?'pass':'fail','Motores de lectura',native&&zxing?'BarcodeDetector y ZXing están disponibles.':native?'BarcodeDetector está disponible; ZXing no cargó.':zxing?'ZXing está disponible como motor principal.':'No se detectó ningún motor de códigos.','Comprueba la conexión inicial y que el CDN de ZXing no esté bloqueado.'));
-    try{
-      const devices=await navigator.mediaDevices?.enumerateDevices?.(); const cams=(devices||[]).filter(d=>d.kind==='videoinput');
-      out.push(diagnosticFinding(cams.length?'pass':'warn','Cámaras detectadas',cams.length?`${cams.length} dispositivo(s) de video encontrados.`:'No se enumeraron cámaras. Puede faltar conceder permiso.','Abre el escáner una vez y acepta el permiso.'));
-    }catch(error){out.push(diagnosticFinding('warn','No se pudieron enumerar cámaras',error.message,'Revisa permisos del navegador.'));}
-    out.push(diagnosticFinding('info','Linterna, enfoque y zoom','Estas capacidades dependen de la cámara trasera y solo pueden confirmarse mientras el escáner está abierto.'));
-    return out;
-  },
-  async pwa(){
-    const out=[];
-    out.push(diagnosticFinding('serviceWorker' in navigator?'pass':'fail','Service Worker','serviceWorker' in navigator?'El navegador soporta funcionamiento offline.':'El navegador no soporta Service Worker.'));
-    if('serviceWorker' in navigator){ const reg=await navigator.serviceWorker.getRegistration().catch(()=>null); out.push(diagnosticFinding(reg?'pass':'warn','Registro offline',reg?'El Service Worker está registrado.':'Todavía no hay un Service Worker activo.','Recarga la app desde HTTPS y espera unos segundos.')); }
-    try{const r=await fetch('manifest.json',{cache:'no-store'});const m=await r.json();const missing=['name','short_name','start_url','display'].filter(k=>!m[k]);out.push(diagnosticFinding(r.ok&&!missing.length?'pass':'fail','Manifest de instalación',r.ok&&!missing.length?'El manifest contiene los campos esenciales.':`Faltan o fallaron: ${missing.join(', ')||'archivo no disponible'}.`));}catch(error){out.push(diagnosticFinding('fail','Manifest inaccesible',error.message,'Comprueba que manifest.json esté en la raíz.'));}
-    try{const r=await fetch('sw.js',{cache:'no-store'});out.push(diagnosticFinding(r.ok?'pass':'fail','Archivo offline',r.ok?'sw.js está accesible desde la raíz.':'No se pudo cargar sw.js.'));}catch(error){out.push(diagnosticFinding('fail','Service Worker inaccesible',error.message));}
-    out.push(diagnosticFinding(matchMedia('(display-mode: standalone)').matches?'pass':'info','Modo de ejecución',matchMedia('(display-mode: standalone)').matches?'La aplicación está abierta como PWA instalada.':'La aplicación está abierta dentro del navegador.'));
-    return out;
-  },
-  async performance(){
-    const out=[]; const started=performance.now();
-    const total=(state.products?.length||0)+(state.sales?.length||0)+(state.expenses?.length||0)+(state.clients?.length||0)+(state.payments?.length||0)+(state.kardex?.length||0);
-    JSON.stringify(state); const elapsed=performance.now()-started;
-    out.push(diagnosticFinding(elapsed>120?'warn':'pass','Serialización del estado',`La base completa se procesó en ${elapsed.toFixed(1)} ms.`,elapsed>120?'El volumen empieza a ser alto para localStorage. Considera archivado o backend.':''));
-    out.push(diagnosticFinding(total>15000?'warn':'info','Volumen de registros',`${total.toLocaleString('es-PE')} registros combinados.`,total>15000?'Usa paginación y considera migrar a IndexedDB o Firebase.':''));
-    const domCount=document.getElementsByTagName('*').length;
-    out.push(diagnosticFinding(domCount>5000?'warn':'pass','Complejidad visual',`${domCount.toLocaleString('es-PE')} nodos renderizados actualmente.`,domCount>5000?'Aplica paginación o renderizado virtual en tablas grandes.':''));
-    if(performance.memory){const mb=performance.memory.usedJSHeapSize/1048576;out.push(diagnosticFinding(mb>150?'warn':'info','Memoria JavaScript',`${mb.toFixed(1)} MB usados aproximadamente.`,mb>150?'Recarga la app y reduce los registros visibles.':''));}
-    return out;
-  }
-};
-
-function renderDiagnosticTestGrid(){
-  const box=$('#diagnosticTestGrid'); if(!box)return;
-  box.innerHTML=DIAGNOSTIC_TESTS.map(t=>`<div class="diagnostic-test-card" data-diagnostic-card="${t.id}"><span class="diagnostic-test-icon">${t.icon}</span><div><strong>${t.name}</strong><p>${t.description}</p></div><button class="secondary-btn" data-run-diagnostic="${t.id}">Probar</button></div>`).join('');
-}
-
-function diagnosticLevelCounts(results){return results.reduce((a,r)=>(a[r.level]=(a[r.level]||0)+1,a),{pass:0,warn:0,fail:0,info:0});}
-function diagnosticScore(results){const relevant=results.filter(r=>r.level!=='info');if(!relevant.length)return 100;const penalty=relevant.reduce((n,r)=>n+(r.level==='fail'?18:r.level==='warn'?6:0),0);return Math.max(0,Math.round(100-penalty));}
-
-function renderDiagnosticReport(report){
-  lastDiagnosticReport=report; const counts=diagnosticLevelCounts(report.results),score=diagnosticScore(report.results);
-  const scoreBox=$('#diagnosticScore');scoreBox.style.setProperty('--score',`${score}%`);scoreBox.className=`diagnostic-score ${score>=85?'good':score>=65?'warning':'bad'}`;scoreBox.innerHTML=`<strong>${score}%</strong><span>${counts.fail?'Con errores':counts.warn?'Advertencias':'Saludable'}</span>`;
-  $('#diagnosticHeadline').textContent=counts.fail?`${counts.fail} error${counts.fail===1?'':'es'} requiere${counts.fail===1?'':'n'} atención`:counts.warn?`La app funciona con ${counts.warn} advertencia${counts.warn===1?'':'s'}`:'Todas las pruebas principales fueron aprobadas';
-  $('#diagnosticSummary').textContent=`${report.label}: ${report.results.length} comprobaciones ejecutadas en ${report.duration.toFixed(0)} ms.`;
-  $('#diagnosticResultsTitle').textContent=report.label;
-  $('#diagnosticLastRun').textContent=new Intl.DateTimeFormat('es-PE',{dateStyle:'short',timeStyle:'short'}).format(new Date(report.generatedAt));
-  $('#diagnosticCounters').classList.remove('hidden');
-  $('#diagnosticCounters').innerHTML=[['pass','Aprobadas','✓'],['warn','Advertencias','!'],['fail','Errores','×'],['info','Informativas','i']].map(([k,l])=>`<div class="diagnostic-counter"><strong>${counts[k]||0}</strong><span>${l}</span></div>`).join('');
-  const order={fail:0,warn:1,pass:2,info:3};
-  $('#diagnosticResults').innerHTML=[...report.results].sort((a,b)=>order[a.level]-order[b.level]).map(r=>`<article class="diagnostic-result ${r.level}"><span class="diagnostic-result-icon">${r.level==='pass'?'✓':r.level==='warn'?'!':r.level==='fail'?'×':'i'}</span><div><div class="diagnostic-category">${escapeHTML(r.category)}</div><h3>${escapeHTML(r.title)}</h3><p>${escapeHTML(r.detail)}</p>${r.suggestion?`<small><strong>Acción sugerida:</strong> ${escapeHTML(r.suggestion)}</small>`:''}</div></article>`).join('');
-  $('#copyDiagnosticBtn').disabled=false;$('#exportDiagnosticBtn').disabled=false;
-}
-
-async function runDiagnostic(ids){
-  const selected=DIAGNOSTIC_TESTS.filter(t=>ids.includes(t.id)); if(!selected.length)return;
-  const full=selected.length===DIAGNOSTIC_TESTS.length, start=performance.now(),results=[];
-  $('#runFullDiagnosticBtn').disabled=true;$('#diagnosticProgress').classList.remove('hidden');$('#diagnosticResultsTitle').textContent='Analizando…';
-  $('#diagnosticResults').innerHTML='<div class="diagnostic-running"><span class="diagnostic-spinner"></span><span>Revisando la app sin modificar tus datos…</span></div>';
-  for(let i=0;i<selected.length;i++){
-    const test=selected[i],card=document.querySelector(`[data-diagnostic-card="${test.id}"]`);card?.classList.add('running');
-    $('#diagnosticProgress span').style.width=`${Math.round((i/selected.length)*100)}%`;
-    try{const findings=await diagnosticRunners[test.id]();findings.forEach(f=>results.push({...f,category:test.name}));card?.classList.add(findings.some(f=>f.level==='fail')?'failed':'passed');}
-    catch(error){results.push({...diagnosticFinding('fail','La prueba no pudo completarse',error.message,'Copia el reporte y revisa la consola del navegador.'),category:test.name});card?.classList.add('failed');}
-    finally{card?.classList.remove('running');}
-    await new Promise(r=>setTimeout(r,60));
-  }
-  $('#diagnosticProgress span').style.width='100%';
-  const report={app:'Negocio Simple',version:'6.0',type:full?'complete':'individual',label:full?'Prueba completa':selected.map(t=>t.name).join(', '),generatedAt:new Date().toISOString(),duration:performance.now()-start,summary:{products:state.products.length,sales:state.sales.length,expenses:state.expenses.length,clients:state.clients.length,payments:state.payments.length,kardex:state.kardex.length},results};
-  renderDiagnosticReport(report); $('#runFullDiagnosticBtn').disabled=false;setTimeout(()=>$('#diagnosticProgress').classList.add('hidden'),400);
-}
-
-function diagnosticReportText(report){
-  const counts=diagnosticLevelCounts(report.results);return [`NEGOCIO SIMPLE · REPORTE DE DIAGNÓSTICO`,`Fecha: ${new Date(report.generatedAt).toLocaleString('es-PE')}`,`Tipo: ${report.label}`,`Resultado: ${diagnosticScore(report.results)}%`,`Aprobadas: ${counts.pass||0} | Advertencias: ${counts.warn||0} | Errores: ${counts.fail||0} | Informativas: ${counts.info||0}`,'',...report.results.map(r=>`[${r.level.toUpperCase()}] ${r.category} · ${r.title}\n${r.detail}${r.suggestion?`\nAcción sugerida: ${r.suggestion}`:''}`)].join('\n\n');
-}
-async function copyDiagnosticReport(){if(!lastDiagnosticReport)return;const text=diagnosticReportText(lastDiagnosticReport);try{await navigator.clipboard.writeText(text);notify('Reporte copiado al portapapeles.')}catch{const ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();notify('Reporte copiado.')}}
-function exportDiagnosticReport(){if(!lastDiagnosticReport)return;const blob=new Blob([JSON.stringify(lastDiagnosticReport,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`diagnostico-negocio-simple-${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
-
-document.addEventListener('DOMContentLoaded',()=>{
-  renderDiagnosticTestGrid();
-  $('#runFullDiagnosticBtn')?.addEventListener('click',()=>runDiagnostic(DIAGNOSTIC_TESTS.map(t=>t.id)));
-  $('#copyDiagnosticBtn')?.addEventListener('click',copyDiagnosticReport);
-  $('#exportDiagnosticBtn')?.addEventListener('click',exportDiagnosticReport);
-  $('#diagnosticTopBtn')?.addEventListener('click',()=>setView('diagnostico'));
-  document.addEventListener('click',e=>{const b=e.target.closest('[data-run-diagnostic]');if(b)runDiagnostic([b.dataset.runDiagnostic]);});
-});
-
-/* ===== V7 · Framework integrado de testing funcional ===== */
-const FUNCTIONAL_TESTS = [
-  {id:'product-flow',icon:'▦',name:'CRUD de productos',description:'Crea, edita, busca y elimina un producto temporal.'},
-  {id:'cash-sale-flow',icon:'↗',name:'Venta y stock',description:'Simula una venta, descuenta stock y genera Kardex.'},
-  {id:'sale-correction-flow',icon:'↺',name:'Edición y anulación',description:'Corrige cantidades y revierte una venta sin perder trazabilidad.'},
-  {id:'credit-flow',icon:'◎',name:'Fiado y abonos',description:'Crea una deuda, registra pagos parciales y valida el saldo.'},
-  {id:'expense-flow',icon:'↘',name:'Gastos y balance',description:'Registra un egreso y comprueba utilidad y flujo neto.'},
-  {id:'receipt-flow',icon:'▤',name:'Boleta de venta',description:'Comprueba numeración, detalle, moneda y total de la boleta.'},
-  {id:'persistence-flow',icon:'◫',name:'Persistencia local',description:'Guarda y recupera una tienda temporal desde localStorage.'},
-  {id:'ui-flow',icon:'◈',name:'Interfaz y navegación',description:'Valida vistas, formularios, botones y accesibilidad básica.'},
-  {id:'theme-flow',icon:'◐',name:'Modo oscuro',description:'Comprueba cambio de tema, contraste base y persistencia.'},
-  {id:'performance-flow',icon:'⚡',name:'Carga masiva',description:'Procesa miles de registros y mide tiempos críticos.'}
-];
-let lastFunctionalReport=null;
-
-function makeTestStore(){
-  return {products:[],sales:[],expenses:[],clients:[],payments:[],kardex:[],sequence:1};
-}
-function testAssert(condition,message,expected='',actual=''){
-  if(!condition){const e=new Error(message);e.expected=expected;e.actual=actual;throw e;}
-}
-function testProduct(store,data){
-  testAssert(data.name?.trim(),'El producto requiere nombre');
-  testAssert(Number(data.price)>0,'El precio debe ser mayor que cero');
-  testAssert(Number(data.stock)>=0,'El stock no puede ser negativo');
-  testAssert(!data.barcode||!store.products.some(p=>p.barcode===data.barcode),'El código de barras está duplicado');
-  const p={id:`tp-${Date.now()}-${Math.random()}`,name:data.name.trim(),barcode:data.barcode||'',price:+data.price,cost:+(data.cost||0),stock:+data.stock,minStock:+(data.minStock||0)};
-  store.products.push(p);
-  if(p.stock) store.kardex.push({id:`tk-${Math.random()}`,productId:p.id,type:'entrada',quantity:p.stock,previousStock:0,newStock:p.stock,reason:'Stock inicial',date:new Date().toISOString()});
-  return p;
-}
-function testSale(store,{productId,quantity,method='Efectivo',clientId=null}){
-  const p=store.products.find(x=>x.id===productId);testAssert(p,'Producto inexistente');
-  quantity=+quantity;testAssert(quantity>0,'Cantidad inválida');testAssert(p.stock>=quantity,'Stock insuficiente',`>= ${quantity}`,p.stock);
-  if(method==='Fiado') testAssert(store.clients.some(c=>c.id===clientId),'El fiado requiere cliente');
-  const before=p.stock;p.stock-=quantity;
-  const sale={id:`ts-${Math.random()}`,receipt:`B001-${String(store.sequence++).padStart(6,'0')}`,productId:p.id,productName:p.name,quantity,unitPrice:p.price,total:+(quantity*p.price).toFixed(2),method,clientId,date:new Date().toISOString(),status:'active'};
-  store.sales.push(sale);store.kardex.push({id:`tk-${Math.random()}`,productId:p.id,type:'salida',quantity,previousStock:before,newStock:p.stock,reason:'Venta',reference:sale.receipt,date:sale.date});return sale;
-}
-function testAdjustSale(store,saleId,newQty){
-  const s=store.sales.find(x=>x.id===saleId),p=store.products.find(x=>x.id===s?.productId);testAssert(s&&p,'Venta o producto inexistente');
-  const delta=+newQty-s.quantity;testAssert(p.stock>=delta,'Stock insuficiente para ampliar venta');const before=p.stock;p.stock-=delta;
-  store.kardex.push({id:`tk-${Math.random()}`,productId:p.id,type:delta>0?'salida':'entrada',quantity:Math.abs(delta),previousStock:before,newStock:p.stock,reason:'Corrección de venta',reference:s.receipt,date:new Date().toISOString()});s.quantity=+newQty;s.total=+(s.quantity*s.unitPrice).toFixed(2);return s;
-}
-function testVoidSale(store,saleId){const s=store.sales.find(x=>x.id===saleId),p=store.products.find(x=>x.id===s?.productId);testAssert(s&&p,'Venta inexistente');testAssert(s.status!=='void','Venta ya anulada');const before=p.stock;p.stock+=s.quantity;s.status='void';store.kardex.push({id:`tk-${Math.random()}`,productId:p.id,type:'entrada',quantity:s.quantity,previousStock:before,newStock:p.stock,reason:'Anulación de venta',reference:s.receipt,date:new Date().toISOString()});}
-function testClientBalance(store,clientId){const debt=store.sales.filter(s=>s.clientId===clientId&&s.method==='Fiado'&&s.status!=='void').reduce((n,s)=>n+s.total,0);const paid=store.payments.filter(p=>p.clientId===clientId).reduce((n,p)=>n+p.amount,0);return +(debt-paid).toFixed(2)}
-
-const functionalRunners={
-  async 'product-flow'(){const s=makeTestStore(),p=testProduct(s,{name:'Producto QA',barcode:'7750000000001',price:6.5,cost:4,stock:20,minStock:5});testAssert(s.products.length===1,'No se creó el producto');p.name='Producto QA Editado';p.price=7;testAssert(s.products[0].name.includes('Editado'),'No se guardó la edición');testAssert(s.products.find(x=>x.barcode==='7750000000001')===p,'La búsqueda por código falló');s.products=s.products.filter(x=>x.id!==p.id);testAssert(!s.products.length,'No se eliminó el producto');return 'Alta, edición, búsqueda y eliminación completadas.'},
-  async 'cash-sale-flow'(){const s=makeTestStore(),p=testProduct(s,{name:'Agua QA',price:2.5,cost:1.2,stock:30}),sale=testSale(s,{productId:p.id,quantity:3});testAssert(p.stock===27,'El stock no disminuyó',27,p.stock);testAssert(sale.total===7.5,'Total incorrecto',7.5,sale.total);const k=s.kardex.at(-1);testAssert(k.previousStock===30&&k.newStock===27,'Kardex incorrecto','30 → 27',`${k.previousStock} → ${k.newStock}`);return 'Venta creada, total calculado y stock descontado.'},
-  async 'sale-correction-flow'(){const s=makeTestStore(),p=testProduct(s,{name:'Galleta QA',price:3,stock:15}),sale=testSale(s,{productId:p.id,quantity:2});testAdjustSale(s,sale.id,4);testAssert(p.stock===11,'La corrección no ajustó el stock',11,p.stock);testVoidSale(s,sale.id);testAssert(p.stock===15,'La anulación no devolvió el stock',15,p.stock);testAssert(s.kardex.some(k=>k.reason==='Corrección de venta')&&s.kardex.some(k=>k.reason==='Anulación de venta'),'Faltan movimientos compensatorios');return 'Edición y anulación conservaron la trazabilidad.'},
-  async 'credit-flow'(){const s=makeTestStore(),p=testProduct(s,{name:'Arroz QA',price:5,stock:20}),c={id:'tc-1',name:'Cliente QA'};s.clients.push(c);testSale(s,{productId:p.id,quantity:4,method:'Fiado',clientId:c.id});testAssert(testClientBalance(s,c.id)===20,'Deuda inicial incorrecta',20,testClientBalance(s,c.id));s.payments.push({id:'pay-1',clientId:c.id,amount:7,date:new Date().toISOString()});testAssert(testClientBalance(s,c.id)===13,'Saldo parcial incorrecto',13,testClientBalance(s,c.id));s.payments.push({id:'pay-2',clientId:c.id,amount:13,date:new Date().toISOString()});testAssert(testClientBalance(s,c.id)===0,'La deuda no quedó cancelada',0,testClientBalance(s,c.id));return 'Fiado y dos abonos conciliados correctamente.'},
-  async 'expense-flow'(){const s=makeTestStore(),p=testProduct(s,{name:'Jugo QA',price:4,stock:10});testSale(s,{productId:p.id,quantity:5});s.expenses.push({id:'te-1',concept:'Luz',amount:8,date:new Date().toISOString()});const income=s.sales.reduce((n,x)=>n+x.total,0),expense=s.expenses.reduce((n,x)=>n+x.amount,0);testAssert(income-expense===12,'Ganancia neta incorrecta',12,income-expense);return 'Ingresos, egresos y ganancia neta conciliados.'},
-  async 'receipt-flow'(){const s=makeTestStore(),p=testProduct(s,{name:'Leche QA',price:4.8,stock:12}),sale=testSale(s,{productId:p.id,quantity:2,method:'Yape'});const receipt={number:sale.receipt,currency:'S/',items:[{name:sale.productName,qty:sale.quantity,price:sale.unitPrice}],total:sale.total,method:sale.method};testAssert(/^B001-\d{6}$/.test(receipt.number),'Numeración inválida');testAssert(receipt.currency==='S/','Moneda incorrecta');testAssert(receipt.items.length&&receipt.total===9.6,'Detalle o total incorrecto');testAssert(receipt.method==='Yape','Método de pago ausente');return `Boleta ${receipt.number} validada con total S/ ${receipt.total.toFixed(2)}.`},
-  async 'persistence-flow'(){const key='negocioSimpleFunctionalTest';const s=makeTestStore();testProduct(s,{name:'Persistencia QA',price:2,stock:5});localStorage.setItem(key,JSON.stringify(s));const restored=JSON.parse(localStorage.getItem(key));localStorage.removeItem(key);testAssert(restored.products.length===1,'No se recuperó el producto');testAssert(restored.products[0].stock===5,'El stock cambió al recuperar');testAssert(!localStorage.getItem(key),'No se limpió la zona temporal');return 'Guardado, recuperación y limpieza temporal aprobados.'},
-  async 'ui-flow'(){const required=['dashboard','ventas','gastos','inventario','clientes','kardex','diagnostico'];const missing=required.filter(id=>!document.getElementById(id));testAssert(!missing.length,'Faltan vistas principales',required.join(', '),missing.join(', '));const forms=['saleForm','expenseForm','productForm','paymentForm'];testAssert(forms.every(id=>document.getElementById(id)),'Faltan formularios operativos');const unlabeled=[...document.querySelectorAll('button')].filter(b=>!b.textContent.trim()&&!b.getAttribute('aria-label')).length;testAssert(unlabeled===0,'Hay botones sin nombre accesible',0,unlabeled);const overflow=document.documentElement.scrollWidth>document.documentElement.clientWidth+4;testAssert(!overflow,'La vista genera desplazamiento horizontal inesperado');return `${required.length} vistas, ${forms.length} formularios y accesibilidad básica aprobados.`},
-  async 'theme-flow'(){const root=document.documentElement,body=document.body,old=root.getAttribute('data-theme')||body.getAttribute('data-theme')||localStorage.getItem('theme')||'light';const target=old==='dark'?'light':'dark';root.setAttribute('data-theme',target);body.setAttribute('data-theme',target);await new Promise(r=>requestAnimationFrame(r));const cs=getComputedStyle(document.body);testAssert(cs.backgroundColor&&cs.color,'No se pudieron calcular colores del tema');const bg=cs.backgroundColor,fg=cs.color;testAssert(bg!==fg,'Fondo y texto tienen el mismo color');root.setAttribute('data-theme',old);body.setAttribute('data-theme',old);return `Cambio ${old} → ${target} renderizado y restaurado sin alterar la preferencia.`},
-  async 'performance-flow'(){const s=makeTestStore();for(let i=0;i<100;i++)testProduct(s,{name:`Producto ${i}`,barcode:`QA${i}`,price:1+i/10,stock:100});const start=performance.now();for(let i=0;i<2500;i++){const p=s.products[i%100];testSale(s,{productId:p.id,quantity:1,method:i%9===0?'Yape':'Efectivo'});if(p.stock<5)p.stock+=100;}const build=performance.now()-start;const t2=performance.now();const raw=JSON.stringify(s),parsed=JSON.parse(raw);const serialization=performance.now()-t2;testAssert(parsed.sales.length===2500,'Se perdieron ventas durante la prueba masiva');testAssert(build<2500,'La simulación fue demasiado lenta','<2500 ms',`${build.toFixed(0)} ms`);return `2,500 ventas simuladas en ${build.toFixed(0)} ms; serialización en ${serialization.toFixed(0)} ms (${(raw.length/1024).toFixed(0)} KB).`}
-};
-
-function renderFunctionalTestGrid(){const box=$('#functionalTestGrid');if(!box)return;box.innerHTML=FUNCTIONAL_TESTS.map(t=>`<article class="functional-test-card" data-functional-card="${t.id}"><span class="test-icon">${t.icon}</span><strong>${t.name}</strong><p>${t.description}</p><button class="secondary-btn" data-run-functional="${t.id}">Ejecutar</button></article>`).join('')}
-function renderFunctionalReport(report){lastFunctionalReport=report;const pass=report.results.filter(x=>x.status==='pass').length,fail=report.results.length-pass;const summary=$('#functionalSuiteSummary');summary.classList.remove('hidden');summary.innerHTML=`<div><strong>${report.results.length}</strong><span>Pruebas ejecutadas</span></div><div><strong>${pass}</strong><span>Aprobadas</span></div><div><strong>${fail}</strong><span>Fallidas</span></div><div><strong>${report.duration.toFixed(0)} ms</strong><span>Duración total</span></div>`;$('#functionalTestResults').innerHTML=report.results.map(r=>`<article class="functional-result ${r.status}"><span class="result-mark">${r.status==='pass'?'✓':'×'}</span><div><h3>${escapeHTML(r.name)}</h3><p>${escapeHTML(r.message)}</p>${r.expected||r.actual?`<code>Esperado: ${escapeHTML(String(r.expected||'—'))} · Obtenido: ${escapeHTML(String(r.actual||'—'))}</code>`:''}</div><time>${r.duration.toFixed(0)} ms</time></article>`).join('');
-}
-async function runFunctionalTests(ids){const selected=FUNCTIONAL_TESTS.filter(t=>ids.includes(t.id));if(!selected.length)return;const originalSnapshot=localStorage.getItem(STORAGE_KEY),start=performance.now(),results=[];$('#runFunctionalSuiteBtn').disabled=true;for(const test of selected){const card=document.querySelector(`[data-functional-card="${test.id}"]`),t0=performance.now();card?.classList.remove('passed','failed');card?.classList.add('running');try{const message=await functionalRunners[test.id]();results.push({id:test.id,name:test.name,status:'pass',message,duration:performance.now()-t0});card?.classList.add('passed')}catch(error){results.push({id:test.id,name:test.name,status:'fail',message:error.message||'Error inesperado',expected:error.expected||'',actual:error.actual||'',duration:performance.now()-t0});card?.classList.add('failed')}finally{card?.classList.remove('running');if(originalSnapshot===null)localStorage.removeItem(STORAGE_KEY);else if(localStorage.getItem(STORAGE_KEY)!==originalSnapshot)localStorage.setItem(STORAGE_KEY,originalSnapshot)}await new Promise(r=>setTimeout(r,35))}const report={app:'Negocio Simple',version:'7.0',generatedAt:new Date().toISOString(),type:selected.length===FUNCTIONAL_TESTS.length?'functional-complete':'functional-individual',duration:performance.now()-start,results};renderFunctionalReport(report);$('#runFunctionalSuiteBtn').disabled=false;return report}
-
-document.addEventListener('DOMContentLoaded',()=>{renderFunctionalTestGrid();$('#runFunctionalSuiteBtn')?.addEventListener('click',()=>runFunctionalTests(FUNCTIONAL_TESTS.map(t=>t.id)));document.addEventListener('click',e=>{const b=e.target.closest('[data-run-functional]');if(b)runFunctionalTests([b.dataset.runFunctional])});$('#runFullDiagnosticBtn')?.addEventListener('click',()=>runFunctionalTests(FUNCTIONAL_TESTS.map(t=>t.id)));});
