@@ -17,42 +17,75 @@ const toNumber = value => Number.parseFloat(value) || 0;
 const escapeHTML = value => String(value ?? '').replace(/[&<>'"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]);
 
 const seed = () => {
-  const today = new Date();
-  const iso = (daysAgo, hour, minute = 0) => {
-    const d = new Date(today);
+  // Demostración determinista de un negocio con 8 meses de operación.
+  // Se genera localmente para mantener el proyecto liviano y totalmente offline.
+  let randomState = 934871;
+  const random = () => ((randomState = (randomState * 1664525 + 1013904223) >>> 0) / 4294967296);
+  const pick = list => list[Math.floor(random() * list.length)];
+  const round2 = value => Math.round(value * 100) / 100;
+  const now = new Date();
+  const at = (daysAgo, hour = 10, minute = 0) => {
+    const d = new Date(now);
     d.setDate(d.getDate() - daysAgo);
     d.setHours(hour, minute, 0, 0);
     return d.toISOString();
   };
-  return {
-    products: [
-      { id: 'p1', barcode: '7750001000011', name: 'Gaseosa personal', price: 3.5, cost: 2.1, stock: 24, minStock: 8 },
-      { id: 'p2', barcode: '7750001000028', name: 'Agua mineral', price: 2.5, cost: 1.3, stock: 6, minStock: 8 },
-      { id: 'p3', barcode: '7750001000035', name: 'Galletas surtidas', price: 2, cost: 1.15, stock: 15, minStock: 5 },
-      { id: 'p4', barcode: '7750001000042', name: 'Leche evaporada', price: 4.8, cost: 3.7, stock: 3, minStock: 6 },
-      { id: 'p5', barcode: '7750001000059', name: 'Arroz 1 kg', price: 5.2, cost: 4.1, stock: 18, minStock: 5 }
-    ],
-    clients: [
-      { id: 'c1', name: 'María Torres', phone: '987 654 321', note: 'Cliente frecuente' },
-      { id: 'c2', name: 'Carlos Peña', phone: '956 220 118', note: '' },
-      { id: 'c3', name: 'Lucía Ramos', phone: '912 440 671', note: 'Bodega de la esquina' }
-    ],
-    sales: [
-      { id: 's1', date: iso(0, 10, 20), description: 'Gaseosa personal', productId: 'p1', quantity: 2, unitPrice: 3.5, total: 7, payment: 'Yape', clientId: null, type: 'product' },
-      { id: 's2', date: iso(0, 12, 5), description: 'Arroz 1 kg', productId: 'p5', quantity: 3, unitPrice: 5.2, total: 15.6, payment: 'Efectivo', clientId: null, type: 'product' },
-      { id: 's3', date: iso(1, 17, 40), description: 'Pedido surtido', productId: null, quantity: 1, unitPrice: 28, total: 28, payment: 'Fiado', clientId: 'c1', type: 'free' },
-      { id: 's4', date: iso(2, 11, 15), description: 'Galletas surtidas', productId: 'p3', quantity: 4, unitPrice: 2, total: 8, payment: 'Plin', clientId: null, type: 'product' },
-      { id: 's5', date: iso(5, 15, 0), description: 'Venta libre', productId: null, quantity: 1, unitPrice: 42, total: 42, payment: 'Transferencia', clientId: null, type: 'free' }
-    ],
-    expenses: [
-      { id: 'e1', date: iso(0, 8, 30), description: 'Compra de bolsas', category: 'Compras', amount: 12.5, payment: 'Efectivo' },
-      { id: 'e2', date: iso(2, 9, 0), description: 'Recarga de internet', category: 'Servicios', amount: 35, payment: 'Yape' },
-      { id: 'e3', date: iso(6, 13, 10), description: 'Movilidad', category: 'Transporte', amount: 18, payment: 'Efectivo' }
-    ],
-    payments: [
-      { id: 'pay1', clientId: 'c1', date: iso(0, 9, 0), amount: 8, method: 'Yape' }
-    ]
-  };
+
+  const catalog = [
+    ['Arroz extra 1 kg',5.50,4.20,'7751010000012'],['Azúcar rubia 1 kg',4.80,3.65,'7751010000029'],['Aceite vegetal 1 L',10.90,8.70,'7751010000036'],['Leche evaporada',4.90,3.85,'7751010000043'],['Fideos spaghetti 500 g',3.40,2.45,'7751010000050'],['Atún en lata',6.90,5.35,'7751010000067'],['Sal de mesa 1 kg',2.40,1.55,'7751010000074'],['Harina sin preparar',5.20,3.95,'7751010000081'],['Avena 400 g',4.60,3.40,'7751010000098'],['Café instantáneo 50 g',7.90,6.15,'7751010000104'],
+    ['Gaseosa personal',3.50,2.10,'7751010000111'],['Gaseosa 1.5 L',8.50,6.25,'7751010000128'],['Agua mineral 625 ml',2.50,1.30,'7751010000135'],['Bebida rehidratante',4.50,3.10,'7751010000142'],['Jugo en caja',2.20,1.35,'7751010000159'],['Cerveza lata',5.50,4.20,'7751010000166'],['Yogurt personal',3.20,2.15,'7751010000173'],['Leche chocolatada',3.00,1.95,'7751010000180'],
+    ['Galletas vainilla',2.00,1.15,'7751010000197'],['Galletas chocolate',2.50,1.45,'7751010000203'],['Piqueo familiar',7.90,5.85,'7751010000210'],['Papas fritas personal',2.50,1.45,'7751010000227'],['Chocolate barra',3.50,2.30,'7751010000234'],['Caramelos surtidos',0.50,0.20,'7751010000241'],['Chicle menta',1.00,0.48,'7751010000258'],['Queque envasado',2.50,1.55,'7751010000265'],
+    ['Papel higiénico x4',8.90,6.70,'7751010000272'],['Detergente 800 g',8.50,6.45,'7751010000289'],['Lavavajilla 500 ml',6.90,5.10,'7751010000296'],['Lejía 1 L',4.20,2.95,'7751010000302'],['Jabón de tocador',3.20,2.15,'7751010000319'],['Shampoo sachet',1.50,0.75,'7751010000326'],['Pasta dental',7.50,5.65,'7751010000333'],['Toalla higiénica x10',6.90,5.05,'7751010000340'],
+    ['Pan de molde',8.90,6.50,'7751010000357'],['Huevos x6',6.50,5.10,'7751010000364'],['Mantequilla 200 g',7.20,5.60,'7751010000371'],['Queso fresco 250 g',8.50,6.80,'7751010000388'],['Jamón 200 g',7.90,6.10,'7751010000395'],['Helado personal',3.50,2.20,'7751010000401'],
+    ['Encendedor',2.00,0.90,'7751010000418'],['Pilas AA x2',5.50,3.95,'7751010000425'],['Bolsa de hielo',4.00,2.20,'7751010000432'],['Servilletas x100',4.50,3.10,'7751010000449'],['Vasos descartables x20',5.00,3.40,'7751010000456'],['Bolsas basura x10',6.50,4.80,'7751010000463'],['Mascarillas x5',3.50,1.80,'7751010000470'],['Alcohol 250 ml',5.90,4.10,'7751010000487']
+  ];
+  const products = catalog.map((item,index) => ({ id:`p${index+1}`, name:item[0], price:item[1], cost:item[2], barcode:item[3], stock:0, minStock: 6 + (index % 7) }));
+  const clientNames = ['María Torres','Carlos Peña','Lucía Ramos','José Vargas','Ana Salazar','Rosa Mendoza','Luis Castillo','Carmen Rojas','Miguel Quispe','Patricia Flores','Jorge Chávez','Elena Paredes','Diego Sánchez','Sofía Navarro','Renzo Medina','Milagros León','Raúl Campos','Daniela Cruz','Víctor Huamán','Andrea Vega','Marco Espinoza','Claudia Reyes','Fernando Silva','Karina Valdez','Óscar Núñez','Natalia Cabrera','Hugo Palomino','Gabriela Soto','Ricardo Ríos','Paola Acosta','Sergio Lozano','Mónica Aguilar','Alonso Guerra','Vanessa Luna','César Tapia','Teresa Bravo'];
+  const clients = clientNames.map((name,index)=>({id:`c${index+1}`,name,phone:`9${String(10000000 + index*173941).slice(-8)}`,note:index%6===0?'Cliente frecuente':index%9===0?'Entrega cercana':''}));
+  const sales=[], expenses=[], payments=[], kardex=[];
+  const stock = Object.fromEntries(products.map((p,i)=>[p.id,90+(i*17)%95]));
+  products.forEach(p=>kardex.push({id:`k-open-${p.id}`,productId:p.id,productName:p.name,date:at(245,7),type:'entrada',quantity:stock[p.id],previousStock:0,newStock:stock[p.id],reason:'Inventario inicial',reference:'APERTURA-001',sourceType:'opening',sourceId:p.id}));
+  const paymentMethods=['Efectivo','Efectivo','Yape','Yape','Plin','Transferencia'];
+  const expenseConcepts=[['Compra mayorista','Compras'],['Reposición de bebidas','Compras'],['Pago de energía','Servicios'],['Internet del negocio','Servicios'],['Movilidad de abastecimiento','Transporte'],['Bolsas y empaques','Compras'],['Limpieza del local','Mantenimiento'],['Mantenimiento de refrigeradora','Mantenimiento'],['Pago de agua','Servicios'],['Publicidad local','Marketing']];
+  let saleNo=1, expenseNo=1, kardexNo=1, paymentNo=1;
+  for(let daysAgo=244;daysAgo>=0;daysAgo--){
+    const date = new Date(now); date.setDate(date.getDate()-daysAgo);
+    const dow=date.getDay();
+    const dailySales=4+Math.floor(random()*7)+(dow===0||dow===6?3:0);
+    for(let j=0;j<dailySales;j++){
+      const product=pick(products); const quantity=1+Math.floor(random()*(random()<.82?3:7));
+      if(stock[product.id]<quantity+3){
+        const incoming=45+Math.floor(random()*90), before=stock[product.id]; stock[product.id]+=incoming;
+        kardex.push({id:`k${kardexNo++}`,productId:product.id,productName:product.name,date:at(daysAgo,7,20),type:'entrada',quantity:incoming,previousStock:before,newStock:stock[product.id],reason:'Reposición de mercadería',reference:`COMP-${String(expenseNo).padStart(5,'0')}`,sourceType:'purchase'});
+      }
+      const before=stock[product.id]; stock[product.id]-=quantity;
+      const isCredit=random()<.075; const client=isCredit?pick(clients):null; const payment=isCredit?'Fiado':pick(paymentMethods);
+      const sale={id:`s${saleNo}`,receiptNumber:`B001-${String(saleNo).padStart(6,'0')}`,date:at(daysAgo,8+Math.floor(random()*13),Math.floor(random()*60)),description:product.name,productId:product.id,quantity,unitPrice:product.price,total:round2(quantity*product.price),payment,clientId:client?.id||null,type:'product'};
+      sales.push(sale);
+      kardex.push({id:`k${kardexNo++}`,productId:product.id,productName:product.name,date:sale.date,type:'salida',quantity,previousStock:before,newStock:stock[product.id],reason:'Venta registrada',reference:`Venta ${sale.receiptNumber}`,sourceType:'sale',sourceId:sale.id});
+      saleNo++;
+    }
+    if(daysAgo%3===0 || random()<.22){
+      const [description,category]=pick(expenseConcepts); const amount=round2(8+random()*(category==='Compras'?210:95));
+      expenses.push({id:`e${expenseNo++}`,date:at(daysAgo,7+Math.floor(random()*11),Math.floor(random()*60)),description,category,amount,payment:pick(paymentMethods)});
+    }
+    if(daysAgo%29===0){
+      products.filter((_,i)=>i%8===Math.floor(random()*8)).slice(0,3).forEach(product=>{
+        const qty=1+Math.floor(random()*3), before=stock[product.id]; stock[product.id]=Math.max(0,before-qty);
+        kardex.push({id:`k${kardexNo++}`,productId:product.id,productName:product.name,date:at(daysAgo,18,15),type:'salida',quantity:before-stock[product.id],previousStock:before,newStock:stock[product.id],reason:'Merma / producto dañado',reference:`MERMA-${String(daysAgo).padStart(3,'0')}`,sourceType:'waste'});
+      });
+    }
+  }
+  // Abonos sobre ventas fiadas, dejando una cartera realista todavía pendiente.
+  const creditByClient={};
+  sales.filter(s=>s.payment==='Fiado').forEach(s=>(creditByClient[s.clientId]??=[]).push(s));
+  Object.entries(creditByClient).forEach(([clientId,credits])=>{
+    const total=credits.reduce((sum,s)=>sum+s.total,0); const paid=round2(total*(.45+random()*.45));
+    const chunks=1+Math.floor(random()*4); let remaining=paid;
+    for(let i=0;i<chunks;i++){const amount=i===chunks-1?remaining:round2(remaining*(.25+random()*.35));remaining=round2(remaining-amount);if(amount>0)payments.push({id:`pay${paymentNo++}`,clientId,date:at(Math.floor(random()*170),9+Math.floor(random()*9),Math.floor(random()*60)),amount,method:pick(['Yape','Efectivo','Plin'])});}
+  });
+  products.forEach(p=>p.stock=stock[p.id]);
+  return {products,clients,sales,expenses,payments,kardex,demoMeta:{version:5,generatedAt:new Date().toISOString(),months:8}};
 };
 
 let state = loadState();
@@ -166,19 +199,13 @@ function renderDashboard() {
 }
 
 function renderWeeklyChart() {
-  const days = [];
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - i);
-    const income = state.sales.filter(s => sameDay(s.date, d)).reduce((sum, s) => sum + s.total, 0);
-    const expense = state.expenses.filter(e => sameDay(e.date, d)).reduce((sum, e) => sum + e.amount, 0);
-    days.push({ d, income, expense });
-  }
-  const max = Math.max(1, ...days.flatMap(day => [day.income, day.expense]));
-  $('#weeklyChart').innerHTML = days.map(day => `
-    <div class="chart-day" title="${shortDateFormatter.format(day.d)} · Ingresos ${money.format(day.income)} · Gastos ${money.format(day.expense)}">
-      <div class="bar-pair"><div class="bar income" style="height:${(day.income / max) * 100}%"></div><div class="bar expense" style="height:${(day.expense / max) * 100}%"></div></div>
-      <small>${day.d.toLocaleDateString('es-PE', { weekday: 'short' }).slice(0, 3)}</small>
-    </div>`).join('');
+  const days=[];
+  for(let i=13;i>=0;i--){const d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()-i);days.push({d,income:state.sales.filter(s=>sameDay(s.date,d)).reduce((n,s)=>n+s.total,0),expense:state.expenses.filter(e=>sameDay(e.date,d)).reduce((n,e)=>n+e.amount,0)});}
+  const width=760,height=240,pad=28,max=Math.max(1,...days.flatMap(x=>[x.income,x.expense]));
+  const point=(v,i)=>`${pad+i*((width-pad*2)/(days.length-1))},${height-pad-(v/max)*(height-pad*2)}`;
+  const incomePts=days.map((x,i)=>point(x.income,i)).join(' '),expensePts=days.map((x,i)=>point(x.expense,i)).join(' ');
+  const incomeTotal=days.reduce((n,x)=>n+x.income,0),expenseTotal=days.reduce((n,x)=>n+x.expense,0),margin=incomeTotal?((incomeTotal-expenseTotal)/incomeTotal)*100:0;
+  $('#weeklyChart').innerHTML=`<div class="flow-summary"><div><span>Ingresos 14 días</span><strong>${money.format(incomeTotal)}</strong></div><div><span>Egresos 14 días</span><strong>${money.format(expenseTotal)}</strong></div><div><span>Margen operativo</span><strong>${margin.toFixed(1)}%</strong></div></div><div class="flow-chart-wrap"><svg class="flow-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Tendencia de ingresos y gastos de los últimos 14 días"><defs><linearGradient id="incomeArea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="currentColor" stop-opacity=".24"/><stop offset="1" stop-color="currentColor" stop-opacity="0"/></linearGradient></defs><g class="grid-lines"><line x1="28" y1="55" x2="732" y2="55"/><line x1="28" y1="120" x2="732" y2="120"/><line x1="28" y1="185" x2="732" y2="185"/></g><polygon class="income-area" points="${pad},${height-pad} ${incomePts} ${width-pad},${height-pad}"/><polyline class="income-line" points="${incomePts}"/><polyline class="expense-line" points="${expensePts}"/></svg><div class="flow-axis">${days.map((x,i)=>i%2===0?`<span>${x.d.toLocaleDateString('es-PE',{day:'2-digit',month:'short'})}</span>`:'<span></span>').join('')}</div></div>`;
 }
 
 function renderSales() {
@@ -768,3 +795,19 @@ function printReceipt(){const data=$('#receiptCanvas').toDataURL('image/png'),w=
 function openSettings(){const b=getBusiness();$('#businessName').value=b.name;$('#businessTaxId').value=b.taxId;$('#businessAddress').value=b.address;$('#businessPhone').value=b.phone;$('#businessFooter').value=b.footer;$('#settingsModal').showModal()}
 
 document.addEventListener('DOMContentLoaded',()=>{applyTheme(localStorage.getItem(THEME_KEY)||'light');const scannerControls=$('.scanner-controls');if(scannerControls&&!$('#zoomBtn'))scannerControls.insertAdjacentHTML('beforeend','<button type="button" id="zoomBtn" class="secondary-btn">⌕ Zoom</button>');$('.scanner-stage')?.insertAdjacentHTML('afterend','<div class="scanner-hint">Limpia la lente, evita reflejos y mantén el código estable durante un segundo.</div>');$('#themeToggle')?.addEventListener('click',toggleTheme);$('#sidebarThemeBtn')?.addEventListener('click',toggleTheme);$('#settingsBtn')?.addEventListener('click',openSettings);$('#sidebarSettingsBtn')?.addEventListener('click',openSettings);$('#zoomBtn')?.addEventListener('click',cycleZoom);$('#downloadReceiptBtn')?.addEventListener('click',downloadReceipt);$('#shareReceiptBtn')?.addEventListener('click',shareReceipt);$('#printReceiptBtn')?.addEventListener('click',printReceipt);$('#settingsForm')?.addEventListener('submit',e=>{e.preventDefault();saveBusiness({name:$('#businessName').value.trim()||'Mi Negocio',taxId:$('#businessTaxId').value.trim(),address:$('#businessAddress').value.trim(),phone:$('#businessPhone').value.trim(),footer:$('#businessFooter').value.trim()||'¡Gracias por su compra!'});$('#settingsModal').close();notify('Datos del negocio guardados.')});document.addEventListener('click',e=>{const b=e.target.closest('[data-receipt-sale]');if(b)openReceipt(b.dataset.receiptSale)});});
+
+
+/* ===== V5 · Datos masivos, flujo moderno y contraste refinado ===== */
+function renderBusinessPulse(){
+  let box=$('#businessPulse'); if(!box)return;
+  const last30=new Date();last30.setDate(last30.getDate()-30);
+  const prev60=new Date();prev60.setDate(prev60.getDate()-60);
+  const current=state.sales.filter(s=>new Date(s.date)>=last30).reduce((n,s)=>n+s.total,0);
+  const previous=state.sales.filter(s=>new Date(s.date)>=prev60&&new Date(s.date)<last30).reduce((n,s)=>n+s.total,0);
+  const trend=previous?((current-previous)/previous)*100:0;
+  const best=[...state.products].map(p=>({p,units:state.sales.filter(s=>s.productId===p.id&&new Date(s.date)>=last30).reduce((n,s)=>n+s.quantity,0)})).sort((a,b)=>b.units-a.units)[0];
+  const low=state.products.filter(p=>p.stock<=p.minStock).length;
+  box.innerHTML=`<article class="pulse-card"><span class="pulse-icon">↗</span><div><small>Tendencia mensual</small><strong class="${trend>=0?'positive':'negative'}">${trend>=0?'+':''}${trend.toFixed(1)}%</strong><p>frente a los 30 días anteriores</p></div></article><article class="pulse-card"><span class="pulse-icon">★</span><div><small>Producto estrella</small><strong>${escapeHTML(best?.p.name||'Sin datos')}</strong><p>${best?.units||0} unidades en 30 días</p></div></article><article class="pulse-card"><span class="pulse-icon">▦</span><div><small>Salud de inventario</small><strong>${low?`${low} alertas`:'Todo saludable'}</strong><p>${state.products.length} productos controlados</p></div></article><article class="pulse-card"><span class="pulse-icon">◎</span><div><small>Base histórica</small><strong>${state.sales.length.toLocaleString('es-PE')} ventas</strong><p>${state.kardex.length.toLocaleString('es-PE')} movimientos de Kardex</p></div></article>`;
+}
+const originalRenderDashboardV5=renderDashboard;
+renderDashboard=function(){originalRenderDashboardV5();renderBusinessPulse();};

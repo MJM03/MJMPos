@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0f766e">
   <meta name="description" content="Gestión simple de ventas, gastos, inventario, clientes y fiados para pequeños negocios en Perú.">
-  <title>Negocio Simple</title>
+  <title>Negocio Simple · Demo comercial</title>
   <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -84,13 +84,15 @@
           </article>
         </div>
 
+        <div id="businessPulse" class="business-pulse" aria-label="Indicadores del negocio"></div>
+
         <div class="dashboard-grid">
           <article class="panel chart-panel">
             <div class="panel-header">
-              <div><span class="section-kicker">Últimos 7 días</span><h2>Flujo del negocio</h2></div>
+              <div><span class="section-kicker">Tendencia de 14 días</span><h2>Rendimiento del negocio</h2><p class="panel-subtitle">Compara ingresos, egresos y margen con una lectura más clara.</p></div>
               <div class="chart-legend"><span class="legend income-dot">Ingresos</span><span class="legend expense-dot">Gastos</span></div>
             </div>
-            <div id="weeklyChart" class="bar-chart" aria-label="Gráfico de ingresos y gastos de los últimos 7 días"></div>
+            <div id="weeklyChart" class="bar-chart" aria-label="Tendencia de ingresos y gastos de los últimos 14 días"></div>
           </article>
 
           <article class="panel">
