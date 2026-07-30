@@ -27,7 +27,7 @@ function nowTime(){return new Date().toLocaleTimeString('es-PE',{hour:'2-digit',
 function saleDateTime(s){return `${s.date||today()} · ${s.time||'--:--'}`}
 function successPulse(){document.body.classList.remove('success-pulse');void document.body.offsetWidth;document.body.classList.add('success-pulse');setTimeout(()=>document.body.classList.remove('success-pulse'),650)}
 function beep(ok=true){try{const C=window.AudioContext||window.webkitAudioContext;if(!C)return;const c=new C(),o=c.createOscillator(),g=c.createGain();o.connect(g);g.connect(c.destination);o.frequency.value=ok?880:220;g.gain.setValueAtTime(.001,c.currentTime);g.gain.exponentialRampToValueAtTime(.12,c.currentTime+.01);g.gain.exponentialRampToValueAtTime(.001,c.currentTime+.12);o.start();o.stop(c.currentTime+.13)}catch{}}
-let db=load();let route='home';let cart=[];let deferredPrompt=null;let stream=null;
+let db=load();let route='home';let cart=[];let deferredPrompt=null;let stream=null;let scannerControls=null;let scannerReader=null;
 const view=document.querySelector('#view'),title=document.querySelector('#pageTitle'),modal=document.querySelector('#modal'),modalContent=document.querySelector('#modalContent'),toastEl=document.querySelector('#toast');
 function load(){try{return JSON.parse(localStorage.getItem(DB_KEY))||structuredClone(seed)}catch{return structuredClone(seed)}}
 function save(){localStorage.setItem(DB_KEY,JSON.stringify(db));document.querySelector('#businessNameMini').textContent=(db.settings.businessName||'NEXO NEGOCIO').toUpperCase()}
@@ -102,20 +102,56 @@ function scanInto(input,cb){openScannerUI('Escanear código',code=>{input.value=
 function openScannerUI(titleText,onCode){openModal(`${modalHead(titleText)}<div class="scanner-shell"><div class="scanner-box"><video id="scannerVideo" playsinline muted></video><div class="scanner-shade"></div><div class="scanner-frame"><i></i></div><div class="scan-line"></div><div class="scanner-status" id="scannerStatus">Preparando cámara…</div></div><div class="scanner-tools"><button class="scanner-tool" id="torchBtn" type="button" disabled>🔦<span>Linterna</span></button><button class="scanner-tool" id="focusBtn" type="button">◎<span>Enfocar</span></button><button class="scanner-tool" id="cameraBtn" type="button">↻<span>Cámara</span></button></div></div><p class="muted scanner-tip">Mantén el código centrado, evita reflejos y aléjalo ligeramente si se ve borroso.</p><div class="field"><label>Código manual</label><div class="input-action"><input id="manualCode" inputmode="numeric" autocomplete="off" placeholder="Escribe el código"><button class="primary" id="useManual" type="button">Usar</button></div></div>`);const done=code=>{if(!code)return;beep(true);navigator.vibrate?.([45,35,70]);onCode(code)};document.querySelector('#useManual').onclick=()=>done(document.querySelector('#manualCode').value.trim());startScanner(done)}
 async function startScanner(onCode){
   stopScanner();
-  const status=document.querySelector('#scannerStatus'),torchBtn=document.querySelector('#torchBtn'),focusBtn=document.querySelector('#focusBtn'),cameraBtn=document.querySelector('#cameraBtn');
+  const status=document.querySelector('#scannerStatus'),torchBtn=document.querySelector('#torchBtn'),focusBtn=document.querySelector('#focusBtn'),cameraBtn=document.querySelector('#cameraBtn'),video=document.querySelector('#scannerVideo');
+  if(!status||!video)return;
+  if(!navigator.mediaDevices?.getUserMedia){status.textContent='Este navegador no permite usar la cámara';toast('Abre NEXO desde Safari o Chrome con HTTPS');return}
+  let finished=false,last='',hits=0;
+  const accept=code=>{
+    code=String(code||'').trim();if(!code||finished)return;
+    if(code===last)hits++;else{last=code;hits=1}
+    status.textContent=`Código detectado · ${code}`;
+    if(hits>=1){finished=true;onCode(code)}
+  };
   try{
-    const devices=await navigator.mediaDevices.enumerateDevices().catch(()=>[]);const cams=devices.filter(d=>d.kind==='videoinput');
-    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{exact:'environment'},width:{ideal:2560},height:{ideal:1440},frameRate:{ideal:30,max:60},advanced:[{focusMode:'continuous'},{exposureMode:'continuous'},{whiteBalanceMode:'continuous'}]},audio:false}).catch(()=>navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:1920},height:{ideal:1080}},audio:false}));
-    const video=document.querySelector('#scannerVideo');if(!video)return;video.srcObject=stream;await video.play();
-    const track=stream.getVideoTracks()[0],caps=track.getCapabilities?.()||{};status.textContent='Buscando código…';
-    if(caps.torch){torchBtn.disabled=false;let torch=false;torchBtn.onclick=async()=>{torch=!torch;await track.applyConstraints({advanced:[{torch}]});torchBtn.classList.toggle('active',torch)}}
-    focusBtn.onclick=async()=>{try{await track.applyConstraints({advanced:[{focusMode:'continuous'}]});status.textContent='Enfoque reajustado';setTimeout(()=>status.textContent='Buscando código…',900)}catch{status.textContent='Enfoque automático activo'}};
-    cameraBtn.disabled=cams.length<2;cameraBtn.onclick=()=>{toast('Se prioriza automáticamente la cámara trasera')};
-    if(!('BarcodeDetector' in window)){status.textContent='Detección automática no disponible';toast('Usa Chrome/Edge moderno o ingresa el código manualmente');return}
-    const supported=await BarcodeDetector.getSupportedFormats?.().catch(()=>[])||[];const wanted=['ean_13','ean_8','upc_a','upc_e','code_128','code_39','code_93','codabar','itf','qr_code','data_matrix'];const formats=wanted.filter(f=>!supported.length||supported.includes(f));const detector=new BarcodeDetector({formats});let last='',hits=0,busy=false;
-    const loop=async()=>{if(!video.isConnected||!stream)return;if(!busy&&video.readyState>=2){busy=true;try{const codes=await detector.detect(video);const code=codes[0]?.rawValue?.trim();if(code){if(code===last)hits++;else{last=code;hits=1}status.textContent=`Código detectado · ${code}`;if(hits>=2){onCode(code);return}}else{hits=0;status.textContent='Buscando código…'}}catch{}finally{busy=false}}requestAnimationFrame(loop)};loop();
-  }catch(e){status&&(status.textContent='No se pudo abrir la cámara');beep(false);toast(location.protocol==='https:'?'Revisa el permiso de cámara':'La cámara requiere HTTPS o localhost')}
+    const devices=await navigator.mediaDevices.enumerateDevices().catch(()=>[]),cams=devices.filter(d=>d.kind==='videoinput');
+    const constraints={video:{facingMode:{ideal:'environment'},width:{ideal:1920,min:640},height:{ideal:1080,min:480},frameRate:{ideal:30}},audio:false};
+    stream=await navigator.mediaDevices.getUserMedia(constraints);
+    video.srcObject=stream;video.setAttribute('playsinline','');video.muted=true;await video.play();
+    const track=stream.getVideoTracks()[0],caps=track.getCapabilities?.()||{};
+    status.textContent='Buscando código…';
+    if(caps.torch){torchBtn.disabled=false;let torch=false;torchBtn.onclick=async()=>{try{torch=!torch;await track.applyConstraints({advanced:[{torch}]});torchBtn.classList.toggle('active',torch)}catch{toast('La linterna no está disponible en este navegador')}}}
+    focusBtn.onclick=async()=>{try{const adv=[];if((caps.focusMode||[]).includes('continuous'))adv.push({focusMode:'continuous'});if(caps.zoom){const z=Math.min(caps.zoom.max||1,Math.max(caps.zoom.min||1,1.5));adv.push({zoom:z})}if(adv.length)await track.applyConstraints({advanced:adv});status.textContent='Enfoque reajustado';setTimeout(()=>{if(!finished)status.textContent='Buscando código…'},800)}catch{status.textContent='Mueve el código lentamente hacia atrás'}};
+    cameraBtn.disabled=cams.length<2;cameraBtn.onclick=()=>toast('NEXO ya está usando la cámara trasera disponible');
+
+    if('BarcodeDetector' in window){
+      try{
+        const supported=await BarcodeDetector.getSupportedFormats?.().catch(()=>[])||[];
+        const wanted=['ean_13','ean_8','upc_a','upc_e','code_128','code_39','code_93','codabar','itf','qr_code','data_matrix'];
+        const formats=wanted.filter(f=>!supported.length||supported.includes(f));
+        const detector=new BarcodeDetector(formats.length?{formats}:undefined);let busy=false;
+        const loop=async()=>{if(finished||!video.isConnected||!stream)return;if(!busy&&video.readyState>=2){busy=true;try{const codes=await detector.detect(video);if(codes[0]?.rawValue)accept(codes[0].rawValue)}catch{}finally{busy=false}}requestAnimationFrame(loop)};loop();return;
+      }catch(e){console.warn('BarcodeDetector fallback',e)}
+    }
+
+    if(window.ZXingBrowser?.BrowserMultiFormatReader){
+      status.textContent='Lector compatible activo…';
+      scannerReader=new ZXingBrowser.BrowserMultiFormatReader();
+      scannerControls=await scannerReader.decodeFromStream(stream,video,(result,error)=>{if(result?.getText)accept(result.getText())});
+      return;
+    }
+
+    status.textContent='No se cargó el lector compatible';
+    toast('Revisa tu conexión e intenta abrir nuevamente el escáner');
+  }catch(e){
+    console.error(e);status.textContent='No se pudo abrir la cámara';beep(false);
+    const msg=e?.name==='NotAllowedError'?'Permite el acceso a la cámara desde los ajustes del navegador':location.protocol==='https:'?'Cierra otras apps que estén usando la cámara':'La cámara requiere HTTPS o localhost';toast(msg)
+  }
 }
-function stopScanner(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}}
+function stopScanner(){
+  try{scannerControls?.stop?.()}catch{}
+  try{scannerReader?.reset?.()}catch{}
+  scannerControls=null;scannerReader=null;
+  if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}
+}
 document.querySelectorAll('.nav-item').forEach(b=>b.onclick=()=>setRoute(b.dataset.route));document.querySelector('#fab').onclick=()=>document.querySelector('#actionSheet').showModal();document.querySelector('#actionSheet').querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>action(b.dataset.action));document.querySelector('#themeBtn').onclick=()=>{document.documentElement.classList.add('theme-switching');db.settings.theme=db.settings.theme==='dark'?'light':'dark';document.documentElement.dataset.theme=db.settings.theme;save();setTimeout(()=>document.documentElement.classList.remove('theme-switching'),350)};window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;document.querySelector('#installBtn').hidden=false});document.querySelector('#installBtn').onclick=async()=>{if(deferredPrompt){deferredPrompt.prompt();await deferredPrompt.userChoice;deferredPrompt=null;document.querySelector('#installBtn').hidden=true}};document.documentElement.dataset.theme=db.settings.theme||'light';save();render();
 if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js'));
