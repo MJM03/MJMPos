@@ -29,3 +29,10 @@ La cámara requiere HTTPS o localhost.
 ## Estado de esta versión
 
 Los datos se guardan en `localStorage`. Para producción conviene agregar autenticación, Firebase/PostgreSQL, sincronización multiusuario, control de suscripciones y copias de seguridad en la nube.
+
+
+## Versión 2.0 V4
+- Corrige el cierre inesperado al escanear productos durante una venta.
+- Restaura el carrito de forma segura tras reconocer el código.
+- Evita entregas duplicadas del mismo escaneo.
+- Actualiza la caché PWA para servir el código corregido.
